@@ -113,7 +113,7 @@ export default function WeirdnessAlert({ alerts, soundEnabled, desktopEnabled, o
         return (
           <div
             key={alert._id}
-            className="bg-red-950/95 border border-red-800 rounded-lg px-4 py-3 shadow-lg animate-slide-in"
+            className="bg-[#0b100b]/95 border border-red-900/60 rounded-lg px-4 py-3 shadow-2xl shadow-black/50 animate-slide-in backdrop-blur-sm"
           >
             <div className="flex items-start justify-between gap-2">
               <div className="flex-1 min-w-0">

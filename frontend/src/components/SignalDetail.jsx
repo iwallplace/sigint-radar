@@ -4,26 +4,25 @@ import RecordControl from "./RecordControl"
 const CAT_ICONS = {
   aviation: "\u2708",
   aircraft: "\u2708",
-  satellite: "\ud83d\udef0",
-  weather_station: "\ud83c\udf21",
-  ism_sensor: "\ud83d\udce1",
-  pager: "\ud83d\udcdf",
-  broadcast: "\ud83d\udcfb",
+  satellite: "\uD83D\uDEF0",
+  weather_station: "\uD83C\uDF21",
+  ism_sensor: "\uD83D\uDCE1",
+  pager: "\uD83D\uDCDF",
+  fm_broadcast: "\uD83D\uDCFB",
   marine: "\u2693",
-  amateur: "\ud83d\udcf6",
+  radio: "\uD83D\uDCF6",
 }
 
 function PowerSparkline({ history }) {
   if (!history || history.length < 2) return null
 
-  const w = 200
-  const h = 40
+  const w = 180
+  const h = 30
   const pad = 2
   const values = history.map((p) => p.db)
   const min = Math.min(...values)
   const max = Math.max(...values)
   const range = max - min || 1
-  const avg = values.reduce((a, b) => a + b, 0) / values.length
 
   const points = values.map((v, i) => {
     const x = pad + (i / (values.length - 1)) * (w - pad * 2)
@@ -31,31 +30,16 @@ function PowerSparkline({ history }) {
     return `${x},${y}`
   }).join(" ")
 
-  const avgY = h - pad - ((avg - min) / range) * (h - pad * 2)
-
   return (
-    <div className="space-y-1">
-      <svg width={w} height={h} className="bg-gray-800/50 rounded">
-        {/* Avg line */}
-        <line
-          x1={pad} y1={avgY} x2={w - pad} y2={avgY}
-          stroke="#4ade80" strokeWidth="0.5" strokeDasharray="3,3" opacity="0.4"
-        />
-        {/* Power line */}
-        <polyline
-          points={points}
-          fill="none"
-          stroke="#22d3ee"
-          strokeWidth="1.5"
-          strokeLinejoin="round"
-        />
-      </svg>
-      <div className="flex justify-between text-[9px] text-gray-600">
-        <span>min: {min.toFixed(1)}</span>
-        <span>avg: {avg.toFixed(1)}</span>
-        <span>max: {max.toFixed(1)}</span>
-      </div>
-    </div>
+    <svg width={w} height={h} className="bg-[#060a06] rounded">
+      <polyline
+        points={points}
+        fill="none"
+        stroke="#22c55e"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+    </svg>
   )
 }
 
@@ -73,76 +57,75 @@ export default function SignalDetail({
   if (!signal) return null
 
   const freqMhz = (signal.freq_hz / 1e6).toFixed(3)
-  const icon = CAT_ICONS[signal.category] || "\u25cf"
+  const icon = CAT_ICONS[signal.category] || "\u25CF"
 
   return (
-    <div className="w-72 border-l border-gray-800 bg-gray-900/90 flex flex-col overflow-y-auto">
+    <div className="w-72 bg-[#0b100b]/95 border border-green-900/50 rounded-lg shadow-2xl shadow-black/50 backdrop-blur-sm">
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-gray-800">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-green-900/30">
         <div className="flex items-center gap-2">
-          <span className="text-lg">{icon}</span>
-          <span className="text-sm font-bold text-green-400">{freqMhz} MHz</span>
+          <span className="text-base">{icon}</span>
+          <span className="text-sm font-bold text-green-400 font-mono">{freqMhz} MHz</span>
         </div>
         <button
           onClick={onClose}
-          className="text-gray-600 hover:text-gray-400 text-sm px-1"
+          className="text-green-800 hover:text-green-400 text-xs px-1 font-bold"
         >
-          x
+          [X]
         </button>
       </div>
 
       {/* Signal info */}
-      <div className="px-3 py-2 space-y-1.5 text-xs border-b border-gray-800">
-        <Row label="Bant" value={signal.band_name} />
-        <Row label="Protokol" value={signal.protocol} valueClass="text-cyan-400" />
-        <Row label="Kategori" value={signal.category} />
-        <Row label="Guc" value={`${signal.power_db?.toFixed(1)} dB`} />
+      <div className="px-3 py-2 space-y-1 text-[11px] border-b border-green-900/30">
+        <Row label="BAND" value={signal.band_name} />
+        <Row label="PROTOCOL" value={signal.protocol} valueClass="text-green-300" />
+        <Row label="CATEGORY" value={signal.category} />
+        <Row label="POWER" value={`${signal.power_db?.toFixed(1)} dB`} />
         <Row label="SNR" value={`${signal.snr_db?.toFixed(1)} dB`} />
-        <Row
-          label="Mesafe"
-          value={`${signal.estimated_distance_km?.toFixed(1)} km`}
-        />
-        <Row label="Weirdness" value={signal.weirdness_score} />
+        <Row label="DISTANCE" value={`${signal.estimated_distance_km?.toFixed(1)} km`} />
+        <Row label="WEIRDNESS" value={signal.weirdness_score} valueClass={
+          (signal.weirdness_score || 0) >= 50 ? "text-red-400" : "text-green-500"
+        } />
         {signal.decode_summary && (
-          <Row label="Decode" value={signal.decode_summary} valueClass="text-green-300" />
+          <Row label="DECODE" value={signal.decode_summary} valueClass="text-green-300" />
         )}
       </div>
 
-      {/* Power history sparkline */}
+      {/* Power history */}
       {signal.power_history && signal.power_history.length > 1 && (
-        <div className="px-3 py-2 border-b border-gray-800">
-          <h4 className="text-[10px] text-gray-500 uppercase tracking-wider font-bold mb-1">
+        <div className="px-3 py-2 border-b border-green-900/30">
+          <div className="text-[9px] text-green-800 uppercase tracking-wider font-bold mb-1">
             Power History
-          </h4>
+          </div>
           <PowerSparkline history={signal.power_history} />
         </div>
       )}
 
       {/* Record section */}
-      <div className="px-3 py-3 space-y-3">
-        <h4 className="text-[10px] text-gray-500 uppercase tracking-wider font-bold">
-          Kayit
-        </h4>
+      <div className="px-3 py-2 space-y-2">
+        <div className="text-[9px] text-green-800 uppercase tracking-wider font-bold">
+          IQ Record
+        </div>
 
         {!recording && !recordResult && (
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <label className="text-xs text-gray-500">Sure:</label>
+              <label className="text-[10px] text-green-700">Duration:</label>
               <input
                 type="number"
                 min={1}
                 max={60}
                 value={duration}
                 onChange={(e) => setDuration(Math.max(1, Math.min(60, Number(e.target.value))))}
-                className="w-14 bg-gray-800 border border-gray-700 rounded px-1.5 py-0.5 text-xs text-green-400 text-center"
+                className="w-12 bg-[#060a06] border border-green-900/50 rounded px-1 py-0.5 text-[10px] text-green-400 text-center font-mono"
               />
-              <span className="text-[10px] text-gray-600">sn</span>
+              <span className="text-[9px] text-green-800">sec</span>
             </div>
             <button
               onClick={() => onRecordStart(signal, duration)}
-              className="w-full py-1.5 bg-red-900/60 text-red-400 rounded hover:bg-red-900 text-xs font-bold tracking-wide"
+              className="w-full py-1 bg-red-950/60 text-red-400 rounded border border-red-900/50 hover:bg-red-950 text-[10px] font-bold tracking-wider"
             >
-              KAYIT ET
+              REC START
             </button>
           </div>
         )}
@@ -158,11 +141,11 @@ export default function SignalDetail({
   )
 }
 
-function Row({ label, value, valueClass = "text-gray-300" }) {
+function Row({ label, value, valueClass = "text-green-500" }) {
   return (
     <div className="flex justify-between">
-      <span className="text-gray-600">{label}</span>
-      <span className={valueClass}>{value ?? "\u2014"}</span>
+      <span className="text-green-800">{label}</span>
+      <span className={`font-mono ${valueClass}`}>{value ?? "\u2014"}</span>
     </div>
   )
 }

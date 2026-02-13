@@ -1,76 +1,60 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef } from "react"
 
 const DECODER_COLORS = {
-  rtl_433: "text-cyan-400",
-  "multimon-ng": "text-yellow-400",
+  rtl_433: "text-green-400",
+  "multimon-ng": "text-yellow-500",
   readsb: "text-orange-400",
   satdump: "text-purple-400",
-};
-
-const PROTOCOL_BADGE = {
-  weather_station: "bg-cyan-900/50 text-cyan-300",
-  ism_sensor: "bg-teal-900/50 text-teal-300",
-  pager: "bg-yellow-900/50 text-yellow-300",
-  aircraft: "bg-orange-900/50 text-orange-300",
-  satellite: "bg-purple-900/50 text-purple-300",
-};
+  dumpvdl2: "text-cyan-400",
+  direwolf: "text-blue-400",
+}
 
 export default function DecodePanel({ decodeLines = [] }) {
-  const bottomRef = useRef(null);
+  const bottomRef = useRef(null)
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [decodeLines.length]);
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" })
+  }, [decodeLines.length])
 
   if (decodeLines.length === 0) {
     return (
-      <div className="bg-gray-900/80 border border-gray-800 rounded p-3">
-        <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
-          Decode Output
-        </h3>
-        <div className="text-gray-600 text-xs text-center py-4">
-          No decode data yet. Start scanning bands with decoders.
-        </div>
+      <div className="px-3 py-2 text-green-900 text-[10px] text-center">
+        DECODE OUTPUT IDLE
       </div>
-    );
+    )
   }
 
   return (
-    <div className="bg-gray-900/80 border border-gray-800 rounded p-3">
-      <div className="flex items-center justify-between mb-2">
-        <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+    <div className="px-2 py-1">
+      <div className="flex items-center justify-between px-1 mb-1">
+        <span className="text-[9px] text-green-800 uppercase tracking-wider font-bold">
           Decode Output
-        </h3>
-        <span className="text-[10px] text-gray-600">
-          {decodeLines.length} lines
+        </span>
+        <span className="text-[9px] text-green-900">
+          {decodeLines.length}
         </span>
       </div>
 
-      <div className="max-h-48 overflow-y-auto space-y-0.5 font-mono text-[11px] scrollbar-thin">
-        {decodeLines.map((line) => (
+      <div className="space-y-0 font-mono text-[10px]">
+        {decodeLines.slice(-20).map((line) => (
           <div
             key={line.id}
-            className="flex items-start gap-2 py-0.5 border-b border-gray-800/50 hover:bg-gray-800/30"
+            className="flex items-start gap-1.5 py-0.5 border-b border-green-900/10"
           >
-            <span className="text-gray-600 shrink-0 w-16">{line.ts}</span>
+            <span className="text-green-900 shrink-0 w-14">{line.ts}</span>
             <span
-              className={`shrink-0 w-16 ${DECODER_COLORS[line.decoder] || "text-gray-400"}`}
+              className={`shrink-0 w-12 ${DECODER_COLORS[line.decoder] || "text-green-600"}`}
             >
-              {line.decoder === "multimon-ng" ? "multimon" : line.decoder}
+              {line.decoder === "multimon-ng" ? "mmon" : line.decoder}
             </span>
-            <span className="px-1.5 py-0 rounded text-[10px] shrink-0 bg-gray-800 text-gray-300">
-              {line.protocol}
-            </span>
-            <span className="text-green-300 truncate flex-1">
-              {line.summary || `${line.count} packet(s)`}
-            </span>
-            <span className="text-gray-700 shrink-0 text-[10px]">
-              {line.band}
+            <span className="text-green-700 shrink-0">{line.protocol}</span>
+            <span className="text-green-500 truncate flex-1">
+              {line.summary || `${line.count} pkt`}
             </span>
           </div>
         ))}
         <div ref={bottomRef} />
       </div>
     </div>
-  );
+  )
 }
