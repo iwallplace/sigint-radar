@@ -24,6 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     libncurses-dev \
     zlib1g-dev \
+    libzstd-dev \
     libasound2-dev \
     && rm -rf /var/lib/apt/lists/*
 
@@ -39,10 +40,20 @@ RUN git clone --depth 1 https://github.com/wiedehopf/readsb.git /tmp/readsb && \
     cp readsb /usr/local/bin/ && \
     rm -rf /tmp/readsb
 
-# Build dumpvdl2 from source
-RUN apt-get update && apt-get install -y --no-install-recommends libglib2.0-dev && \
+# Build libacars (required by dumpvdl2)
+RUN apt-get update && apt-get install -y --no-install-recommends libglib2.0-dev libjansson-dev && \
     rm -rf /var/lib/apt/lists/* && \
-    git clone --depth 1 https://github.com/szpajder/dumpvdl2.git /tmp/dumpvdl2 && \
+    git clone --depth 1 https://github.com/szpajder/libacars.git /tmp/libacars && \
+    cd /tmp/libacars && \
+    mkdir build && cd build && \
+    cmake .. && \
+    make -j$(nproc) && \
+    make install && \
+    ldconfig && \
+    rm -rf /tmp/libacars
+
+# Build dumpvdl2 from source
+RUN git clone --depth 1 https://github.com/szpajder/dumpvdl2.git /tmp/dumpvdl2 && \
     cd /tmp/dumpvdl2 && \
     mkdir build && cd build && \
     cmake .. && \
