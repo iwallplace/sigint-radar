@@ -2,6 +2,7 @@ import useWebSocket from "./hooks/useWebSocket";
 import useSignalData from "./hooks/useSignalData";
 import RadarScreen from "./components/RadarScreen";
 import SignalList from "./components/SignalList";
+import BandCatalog from "./components/BandCatalog";
 
 export default function App() {
   const {
@@ -13,64 +14,88 @@ export default function App() {
     removeSignal,
   } = useSignalData();
 
-  const { connected, rtlsdrConnected } = useWebSocket({
+  const {
+    connected,
+    rtlsdrConnected,
+    bands,
+    bandStatus,
+    scanning,
+    scanStart,
+    scanStop,
+  } = useWebSocket({
     onSignalNew: addSignal,
     onSignalUpdate: updateSignal,
     onSignalRemoved: removeSignal,
   });
 
   return (
-    <div className="min-h-screen bg-gray-950 text-green-400 flex flex-col items-center font-mono p-4">
-      <h1 className="text-3xl font-bold tracking-widest mb-4 mt-4">
-        SIGINT RADAR
-      </h1>
+    <div className="h-screen bg-gray-950 text-green-400 font-mono flex">
+      {/* Left panel — Band Catalog */}
+      <BandCatalog
+        bands={bands}
+        bandStatus={bandStatus}
+        scanning={scanning}
+        signalCount={signalList.length}
+        onScanStart={scanStart}
+        onScanStop={scanStop}
+      />
 
-      <div className="flex gap-6 mb-4 text-sm">
-        <div className="flex items-center gap-1.5">
-          <span
-            className={`inline-block w-2.5 h-2.5 rounded-full ${
-              connected ? "bg-green-500" : "bg-red-500"
-            }`}
-          />
-          <span className={connected ? "text-green-400" : "text-red-400"}>
-            WS: {connected ? "connected" : "disconnected"}
-          </span>
+      {/* Main content */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Top bar */}
+        <div className="flex items-center justify-between px-4 py-2 border-b border-gray-800">
+          <h1 className="text-xl font-bold tracking-widest">SIGINT RADAR</h1>
+          <div className="flex gap-4 text-xs">
+            <div className="flex items-center gap-1.5">
+              <span
+                className={`inline-block w-2 h-2 rounded-full ${
+                  connected ? "bg-green-500" : "bg-red-500"
+                }`}
+              />
+              <span className={connected ? "text-green-400" : "text-red-400"}>
+                WS: {connected ? "on" : "off"}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span
+                className={`inline-block w-2 h-2 rounded-full ${
+                  rtlsdrConnected ? "bg-green-500" : "bg-yellow-500"
+                }`}
+              />
+              <span
+                className={
+                  rtlsdrConnected ? "text-green-400" : "text-yellow-400"
+                }
+              >
+                SDR: {rtlsdrConnected ? "on" : "no"}
+              </span>
+            </div>
+            <span className="text-gray-600">
+              {signalList.length} signals
+            </span>
+          </div>
         </div>
 
-        <div className="flex items-center gap-1.5">
-          <span
-            className={`inline-block w-2.5 h-2.5 rounded-full ${
-              rtlsdrConnected ? "bg-green-500" : "bg-yellow-500"
-            }`}
-          />
-          <span
-            className={
-              rtlsdrConnected ? "text-green-400" : "text-yellow-400"
-            }
-          >
-            SDR: {rtlsdrConnected ? "connected" : "no device"}
-          </span>
+        {/* Radar + Signal list */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <div className="flex justify-center">
+            <div className="w-full max-w-lg">
+              <RadarScreen
+                signals={signalList}
+                selectedId={selectedId}
+                onSelect={setSelectedId}
+              />
+            </div>
+          </div>
+
+          <div className="w-full">
+            <SignalList
+              signals={signalList}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+            />
+          </div>
         </div>
-
-        <span className="text-gray-600">
-          Signals: {signalList.length}
-        </span>
-      </div>
-
-      <div className="w-full max-w-2xl">
-        <RadarScreen
-          signals={signalList}
-          selectedId={selectedId}
-          onSelect={setSelectedId}
-        />
-      </div>
-
-      <div className="w-full max-w-4xl mt-4">
-        <SignalList
-          signals={signalList}
-          selectedId={selectedId}
-          onSelect={setSelectedId}
-        />
       </div>
     </div>
   );

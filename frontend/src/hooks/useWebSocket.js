@@ -8,6 +8,9 @@ export default function useWebSocket({ onSignalNew, onSignalUpdate, onSignalRemo
   const [rtlsdrConnected, setRtlsdrConnected] = useState(false);
   const [station, setStation] = useState(null);
   const [region, setRegion] = useState(null);
+  const [bands, setBands] = useState([]);
+  const [bandStatus, setBandStatus] = useState({});
+  const [scanning, setScanning] = useState(false);
 
   const wsRef = useRef(null);
   const backoffRef = useRef(1000);
@@ -39,6 +42,9 @@ export default function useWebSocket({ onSignalNew, onSignalUpdate, onSignalRemo
             setRtlsdrConnected(data.rtlsdr_connected);
             if (data.station) setStation(data.station);
             if (data.region) setRegion(data.region);
+            if (data.bands) setBands(data.bands);
+            if (data.band_status) setBandStatus(data.band_status);
+            if (data.scanning !== undefined) setScanning(data.scanning);
             if (data.signals) {
               for (const sig of data.signals) {
                 cb.onSignalNew?.(sig);
@@ -60,6 +66,22 @@ export default function useWebSocket({ onSignalNew, onSignalUpdate, onSignalRemo
 
           case "signal_removed":
             cb.onSignalRemoved?.(data.signal_id);
+            break;
+
+          case "scan_band_active":
+            break;
+
+          case "band_status_update":
+            if (data.band_status) setBandStatus(data.band_status);
+            break;
+
+          case "scan_stopped":
+            setScanning(false);
+            break;
+
+          case "bands_list":
+            if (data.bands) setBands(data.bands);
+            if (data.band_status) setBandStatus(data.band_status);
             break;
 
           case "error":
@@ -108,5 +130,25 @@ export default function useWebSocket({ onSignalNew, onSignalUpdate, onSignalRemo
     }
   }, []);
 
-  return { connected, rtlsdrConnected, station, region, sendMessage };
+  const scanStart = useCallback((bandNames) => {
+    setScanning(true);
+    sendMessage("scan_start", { bands: bandNames });
+  }, [sendMessage]);
+
+  const scanStop = useCallback(() => {
+    sendMessage("scan_stop");
+  }, [sendMessage]);
+
+  return {
+    connected,
+    rtlsdrConnected,
+    station,
+    region,
+    bands,
+    bandStatus,
+    scanning,
+    sendMessage,
+    scanStart,
+    scanStop,
+  };
 }
