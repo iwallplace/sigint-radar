@@ -3,6 +3,7 @@ import { useI18n } from "./i18n"
 import useWebSocket from "./hooks/useWebSocket"
 import useSignalData from "./hooks/useSignalData"
 import RadarScreen from "./components/RadarScreen"
+import Radar3D from "./components/Radar3D"
 import SignalPanel from "./components/SignalPanel"
 import BandCatalog from "./components/BandCatalog"
 import DecodePanel from "./components/DecodePanel"
@@ -46,6 +47,9 @@ export default function App() {
     serverConfig,
     alerts,
     spectrumData,
+    lockedFreq,
+    lockFrequency,
+    unlockFrequency,
   } = useWebSocket({
     onSignalNew: addSignal,
     onSignalUpdate: updateSignal,
@@ -55,6 +59,7 @@ export default function App() {
   const [catalogOpen, setCatalogOpen] = useState(false)
   const [categoryFilter, setCategoryFilter] = useState("all")
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [radarMode, setRadarMode] = useState("2d") // "2d" or "3d"
 
   // Sync language from server
   useEffect(() => {
@@ -169,6 +174,12 @@ export default function App() {
               <span className="text-red-400">REC</span>
             </div>
           )}
+          {lockedFreq && (
+            <div className="flex items-center gap-1.5">
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse" />
+              <span className="text-yellow-400">LOCKED {(lockedFreq / 1e6).toFixed(3)}</span>
+            </div>
+          )}
           <button
             onClick={() => setHistoryOpen(true)}
             className="text-[10px] px-2 py-0.5 border border-green-900/50 rounded text-green-700 hover:text-green-400 hover:border-green-700 tracking-wider font-bold"
@@ -275,14 +286,48 @@ export default function App() {
 
         {/* ===== RIGHT — RADAR ===== */}
         <div className="flex-1 flex overflow-hidden relative">
+          {/* 2D/3D toggle */}
+          <div className="absolute top-2 left-2 z-20 flex gap-1">
+            <button
+              onClick={() => setRadarMode("2d")}
+              className={`px-2 py-0.5 text-[10px] font-bold rounded tracking-wider border ${
+                radarMode === "2d"
+                  ? "bg-green-950 border-green-700 text-green-400"
+                  : "bg-transparent border-green-900/50 text-green-800 hover:text-green-400"
+              }`}
+            >
+              2D
+            </button>
+            <button
+              onClick={() => setRadarMode("3d")}
+              className={`px-2 py-0.5 text-[10px] font-bold rounded tracking-wider border ${
+                radarMode === "3d"
+                  ? "bg-green-950 border-green-700 text-green-400"
+                  : "bg-transparent border-green-900/50 text-green-800 hover:text-green-400"
+              }`}
+            >
+              3D
+            </button>
+          </div>
+
           <div className="flex-1 flex items-center justify-center p-2">
-            <RadarScreen
-              signals={filteredSignals}
-              selectedId={selectedId}
-              onSelect={setSelectedId}
-              rangeKm={radarRange}
-              stationName={stationName}
-            />
+            {radarMode === "2d" ? (
+              <RadarScreen
+                signals={filteredSignals}
+                selectedId={selectedId}
+                onSelect={setSelectedId}
+                rangeKm={radarRange}
+                stationName={stationName}
+              />
+            ) : (
+              <Radar3D
+                signals={filteredSignals}
+                selectedId={selectedId}
+                onSelect={setSelectedId}
+                rangeKm={radarRange}
+                stationName={stationName}
+              />
+            )}
           </div>
 
           {/* Signal detail overlay */}
@@ -297,6 +342,9 @@ export default function App() {
                 onRecordStop={recordStop}
                 onClearRecord={clearRecordResult}
                 onClose={() => setSelectedId(null)}
+                lockedFreq={lockedFreq}
+                onLock={lockFrequency}
+                onUnlock={unlockFrequency}
               />
             </div>
           )}

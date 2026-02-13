@@ -98,19 +98,19 @@ export default function WeirdnessAlert({ alerts, soundEnabled, desktopEnabled, o
 
     const entry = { ...latest }
     setVisible((prev) => {
-      // Max 3 alerts on screen — remove oldest if at limit
+      // Max 2 alerts on screen — remove oldest if at limit
       const next = [...prev, entry]
-      return next.length > 3 ? next.slice(-3) : next
+      return next.length > 2 ? next.slice(-2) : next
     })
 
     // Read from refs for latest prop values (not stale closure)
     if (soundRef.current) playBeep()
     if (desktopRef.current) sendDesktopNotification(entry)
 
-    // Auto-dismiss after 5 seconds
+    // Auto-dismiss after 3 seconds
     setTimeout(() => {
       setVisible((prev) => prev.filter((v) => v._id !== entry._id))
-    }, 5000)
+    }, 3000)
   }, [alerts, playBeep, sendDesktopNotification])
 
   const dismiss = (id) => {

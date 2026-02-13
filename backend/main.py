@@ -44,6 +44,11 @@ class SignalServer:
         self.recording = False
         self._pre_record_bands = None  # bands to resume after recording
 
+        # Lock frequency mode
+        self.locked_freq = None
+        self._lock_task = None
+        self._pre_lock_bands = None
+
         # Replay state
         self.replaying = False
         self.replay_task = None
@@ -128,6 +133,8 @@ class SignalServer:
             "replay_stop": self._handle_replay_stop,
             "get_folder_tree": self._handle_get_folder_tree,
             "get_record_files": self._handle_get_record_files,
+            "lock_frequency": self._handle_lock_frequency,
+            "unlock_frequency": self._handle_unlock_frequency,
         }
 
         handler = handlers.get(action)
@@ -192,8 +199,17 @@ class SignalServer:
     async def _handle_scan_stop(self, data, ws):
         if self.scan_task and not self.scan_task.done():
             self.scan_engine.stop()
+            self.scan_task.cancel()
+            try:
+                await self.scan_task
+            except (asyncio.CancelledError, Exception):
+                pass
+        # Kill any active decoder subprocesses
+        await self.scan_engine.decoder_manager.stop_live_decode()
         self.scanning = False
         self.active_band = None
+        # Clear alert cooldowns on stop
+        self._alert_cooldown.clear()
         await self.broadcast({"type": "scan_stopped"})
 
     async def _handle_record_start(self, data, ws):
@@ -668,6 +684,152 @@ class SignalServer:
         except Exception as e:
             logger.error("Error getting record files: %s", e)
 
+    async def _handle_lock_frequency(self, data, ws):
+        """Lock dongle to a single frequency for continuous live decode."""
+        freq_hz = data.get("freq_hz")
+        signal_info = data.get("signal", {})
+        if not freq_hz:
+            await ws.send(json.dumps({
+                "type": "error", "action": "lock_frequency",
+                "message": "no_frequency",
+            }))
+            return
+
+        # Stop scanning, remember bands
+        self._pre_lock_bands = None
+        if self.scanning and self.scan_task and not self.scan_task.done():
+            self._pre_lock_bands = list(self.scan_engine.all_bands.keys())
+            self.scan_engine.stop()
+            self.scan_task.cancel()
+            try:
+                await self.scan_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self.scanning = False
+
+        self.locked_freq = freq_hz
+
+        # Start continuous decode task
+        self._lock_task = asyncio.create_task(
+            self._run_lock_mode(freq_hz, signal_info)
+        )
+
+        await self.broadcast({
+            "type": "freq_locked",
+            "freq_hz": freq_hz,
+            "signal": signal_info,
+        })
+        logger.info("Frequency locked: %.3f MHz", freq_hz / 1e6)
+
+    async def _handle_unlock_frequency(self, data, ws):
+        """Unlock frequency and resume scanning."""
+        if self._lock_task and not self._lock_task.done():
+            self._lock_task.cancel()
+            try:
+                await self._lock_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._lock_task = None
+
+        # Stop any running decoder
+        await self.scan_engine.decoder_manager.stop_live_decode()
+
+        self.locked_freq = None
+
+        await self.broadcast({"type": "freq_unlocked"})
+        logger.info("Frequency unlocked")
+
+        # Resume scanning if we were scanning before
+        if self._pre_lock_bands:
+            bands = self._pre_lock_bands
+            self._pre_lock_bands = None
+            self.scanning = True
+            self.scan_engine = ScanEngine(
+                config=self.config, cluster=self.cluster
+            )
+            self.scan_task = asyncio.create_task(self._run_scan(bands))
+            await self.broadcast({"type": "scan_resumed"})
+
+    async def _run_lock_mode(self, freq_hz, signal_info):
+        """Continuously read IQ + decode on a locked frequency."""
+        sample_rate = self.config.get("rtlsdr", {}).get("sample_rate", 2400000)
+        band_name = signal_info.get("band_name", "locked")
+
+        try:
+            while self.locked_freq == freq_hz:
+                # Read IQ samples
+                iq_samples = await self.scan_engine._read_samples(freq_hz, sample_rate)
+                if iq_samples is not None:
+                    # Emit spectrum
+                    try:
+                        fft_size = self.scan_engine.detector.fft_size
+                        spectrum = np.fft.fftshift(np.fft.fft(iq_samples[:fft_size]))
+                        power_db_arr = 20 * np.log10(np.abs(spectrum) + 1e-12)
+                        freqs_arr = np.linspace(
+                            freq_hz - sample_rate / 2,
+                            freq_hz + sample_rate / 2,
+                            fft_size,
+                        )
+                        n_bins = 256
+                        step = max(1, len(freqs_arr) // n_bins)
+                        spectrum_event = {
+                            "type": "spectrum",
+                            "band": "locked",
+                            "center_hz": freq_hz,
+                            "sample_rate": sample_rate,
+                            "freqs": freqs_arr[::step].tolist(),
+                            "power_db": power_db_arr[::step].tolist(),
+                        }
+                        self.last_spectrum = spectrum_event
+                        await self.broadcast(spectrum_event)
+                    except Exception:
+                        pass
+
+                    # Signal detection
+                    detected = self.scan_engine.detector.detect_signals(
+                        iq_samples, freq_hz, sample_rate
+                    )
+                    for peak_freq, peak_power, bw, snr in detected:
+                        sig = {
+                            "freq_hz": peak_freq,
+                            "band_name": band_name,
+                            "protocol": signal_info.get("protocol", "unknown"),
+                            "category": signal_info.get("category", "unknown"),
+                            "power_db": peak_power,
+                            "snr_db": snr,
+                            "estimated_distance_km": signal_info.get("estimated_distance_km", 0),
+                            "weirdness_score": 0,
+                        }
+                        cid, is_new = self.cluster.add_signal(sig)
+                        cluster = self.cluster.get_cluster(cid)
+                        if is_new:
+                            await self.broadcast({"type": "signal_new", "signal": cluster})
+                        else:
+                            await self.broadcast({"type": "signal_update", "signal": cluster})
+
+                # Run live decode
+                async for decode_result in self.scan_engine.decoder_manager.start_live_decode(
+                    freq_hz, band_name
+                ):
+                    if decode_result and decode_result.get("count", 0) > 0:
+                        await self.broadcast({
+                            "type": "decode_line",
+                            "decoder": decode_result.get("decoder"),
+                            "protocol": decode_result.get("protocol"),
+                            "summary": decode_result.get("_summary", ""),
+                            "count": decode_result.get("count", 0),
+                            "band": band_name,
+                        })
+
+                await asyncio.sleep(0.5)
+
+        except asyncio.CancelledError:
+            logger.info("Lock mode cancelled")
+        except Exception as e:
+            logger.error("Lock mode error: %s", e)
+        finally:
+            self.locked_freq = None
+
     async def _handle_replay_start(self, data, ws):
         """Replay a recorded IQ file through the scan pipeline."""
         record_id = data.get("record_id")
@@ -844,10 +1006,21 @@ class SignalServer:
                     # Alert if weirdness exceeds threshold (with cooldown)
                     sig = event.get("signal", {})
                     threshold = self.config.get("alerts", {}).get(
-                        "weirdness_threshold", 40
+                        "weirdness_threshold", 80
                     )
                     w_score = sig.get("weirdness_score", 0)
-                    if w_score >= threshold:
+                    protocol = sig.get("protocol", "unknown")
+
+                    # Skip alerts for known/decoded protocols
+                    known_protocols = {
+                        "Bresser-5in1", "Prologue-TH", "Generic-Remote",
+                        "POCSAG1200", "POCSAG512", "POCSAG2400", "FLEX",
+                        "ADS-B", "FM-RDS", "FM-Broadcast", "NOAA-APT",
+                        "Meteor-M2-LRPT",
+                    }
+                    skip_alert = protocol in known_protocols
+
+                    if w_score >= threshold and not skip_alert and self.scanning:
                         # Cooldown: 1 alert per frequency per 5 minutes
                         freq_key = int(sig.get("freq_hz", 0) / 1000)  # 1kHz bins
                         now = time.time()

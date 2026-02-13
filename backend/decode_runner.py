@@ -109,17 +109,24 @@ def _undecoded_result(freq_hz):
 
 
 def _decode_rtl433(raw_path, freq_hz, json_path):
-    """Decode IQ file with rtl_433."""
+    """Decode IQ file with rtl_433.
+
+    File format: cu8 (unsigned 8-bit interleaved IQ), 2.4 MSps.
+    rtl_433 auto-detects cu8 from .raw extension, but we specify explicitly
+    via the filename:PARAMS syntax for reliability.
+    """
+    # rtl_433 -r file:cu8:2400000 format for explicit IQ specification
+    file_spec = f"{raw_path}:cu8:{int(2400000)}"
     cmd = [
-        "rtl_433", "-r", raw_path,
-        "-s", "2400000",
+        "rtl_433",
+        "-r", file_spec,
         "-f", str(int(freq_hz)),
         "-F", "json",
     ]
     result = subprocess.run(
-        cmd, capture_output=True, text=True, timeout=30
+        cmd, capture_output=True, text=True, timeout=60
     )
-    lines = result.stdout.strip().split("\n")
+    lines = [l for l in result.stdout.strip().split("\n") if l.strip()]
     normalized = normalize_rtl433(lines)
 
     with open(json_path, "w") as f:

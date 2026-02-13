@@ -76,6 +76,9 @@ export default function SignalDetail({
   onRecordStop,
   onClearRecord,
   onClose,
+  lockedFreq,
+  onLock,
+  onUnlock,
 }) {
   const [durationMin, setDurationMin] = useState(1)
 
@@ -98,6 +101,26 @@ export default function SignalDetail({
         >
           [X]
         </button>
+      </div>
+
+      {/* Lock frequency button */}
+      <div className="px-3 py-1.5 border-b border-green-900/30">
+        {lockedFreq === signal.freq_hz ? (
+          <button
+            onClick={() => onUnlock?.()}
+            className="w-full py-1 bg-yellow-950/60 text-yellow-400 rounded border border-yellow-900/50 hover:bg-yellow-950 text-[10px] font-bold tracking-wider"
+          >
+            {"\uD83D\uDD13"} UNLOCK FREQUENCY
+          </button>
+        ) : (
+          <button
+            onClick={() => onLock?.(signal)}
+            disabled={!!lockedFreq || recording}
+            className="w-full py-1 bg-cyan-950/60 text-cyan-400 rounded border border-cyan-900/50 hover:bg-cyan-950 text-[10px] font-bold tracking-wider disabled:opacity-30"
+          >
+            {"\uD83D\uDD12"} LOCK FREQUENCY
+          </button>
+        )}
       </div>
 
       {/* Signal info */}

@@ -43,7 +43,7 @@ class SignalRecorder:
 
         logger.info(
             "Recording started: %.3f MHz, %ds, file=%s",
-            freq_hz / 1e6, duration_seconds, filename,
+            freq_hz / 1e6, duration_seconds, raw_path,
         )
 
         try:

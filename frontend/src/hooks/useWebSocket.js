@@ -23,6 +23,7 @@ export default function useWebSocket({ onSignalNew, onSignalUpdate, onSignalRemo
   const [serverConfig, setServerConfig] = useState(null)
   const [alerts, setAlerts] = useState([])
   const [spectrumData, setSpectrumData] = useState(null)
+  const [lockedFreq, setLockedFreq] = useState(null)
 
   const wsRef = useRef(null)
   const backoffRef = useRef(1000)
@@ -168,6 +169,15 @@ export default function useWebSocket({ onSignalNew, onSignalUpdate, onSignalRemo
             setScanning(false)
             break
 
+          case "freq_locked":
+            setLockedFreq(data.freq_hz)
+            setScanning(false)
+            break
+
+          case "freq_unlocked":
+            setLockedFreq(null)
+            break
+
           case "bands_list":
             if (data.bands) setBands(data.bands)
             if (data.band_status) setBandStatus(data.band_status)
@@ -264,6 +274,23 @@ export default function useWebSocket({ onSignalNew, onSignalUpdate, onSignalRemo
     setRecordResult(null)
   }, [])
 
+  const lockFrequency = useCallback((signal) => {
+    sendMessage("lock_frequency", {
+      freq_hz: signal.freq_hz,
+      signal: {
+        band_name: signal.band_name,
+        protocol: signal.protocol,
+        category: signal.category,
+        power_db: signal.power_db,
+        estimated_distance_km: signal.estimated_distance_km,
+      },
+    })
+  }, [sendMessage])
+
+  const unlockFrequency = useCallback(() => {
+    sendMessage("unlock_frequency")
+  }, [sendMessage])
+
   return {
     connected,
     rtlsdrConnected,
@@ -287,5 +314,8 @@ export default function useWebSocket({ onSignalNew, onSignalUpdate, onSignalRemo
     serverConfig,
     alerts,
     spectrumData,
+    lockedFreq,
+    lockFrequency,
+    unlockFrequency,
   }
 }
