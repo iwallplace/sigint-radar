@@ -17,7 +17,7 @@ region:
 
 scanner:
   enabled: true
-  fake_mode: false
+  fake_mode: true
   cycle_delay_ms: 500
   fft_size: 2048
   fft_averages: 16

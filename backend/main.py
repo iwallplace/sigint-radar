@@ -1,8 +1,14 @@
 import asyncio
 import json
 import logging
+import random
+import time
+import uuid
 
 import websockets
+
+from config import load_config
+from database import Database
 
 logging.basicConfig(
     level=logging.INFO,
@@ -10,45 +16,226 @@ logging.basicConfig(
 )
 logger = logging.getLogger("sigint-radar")
 
-CLIENTS = set()
+
+FAKE_SIGNALS = [
+    {
+        "freq_hz": 433920000,
+        "band_name": "ism_433",
+        "protocol": "Bresser-5in1",
+        "category": "weather_station",
+        "power_db": -45,
+        "snr_db": 18,
+        "estimated_distance_km": 1.2,
+        "weirdness_score": 10,
+    },
+    {
+        "freq_hz": 433200000,
+        "band_name": "ism_433",
+        "protocol": "unknown",
+        "category": "unknown",
+        "power_db": -72,
+        "snr_db": 6,
+        "estimated_distance_km": 8.5,
+        "weirdness_score": 75,
+    },
+    {
+        "freq_hz": 446006250,
+        "band_name": "pmr446",
+        "protocol": "PMR446",
+        "category": "radio",
+        "power_db": -55,
+        "snr_db": 12,
+        "estimated_distance_km": 3.0,
+        "weirdness_score": 5,
+    },
+    {
+        "freq_hz": 137100000,
+        "band_name": "weather_sat",
+        "protocol": "NOAA-APT",
+        "category": "satellite",
+        "power_db": -90,
+        "snr_db": 8,
+        "estimated_distance_km": 800,
+        "weirdness_score": 15,
+    },
+    {
+        "freq_hz": 1090000000,
+        "band_name": "adsb",
+        "protocol": "ADS-B",
+        "category": "aircraft",
+        "power_db": -60,
+        "snr_db": 20,
+        "estimated_distance_km": 120,
+        "weirdness_score": 0,
+    },
+]
 
 
-async def handler(websocket):
-    CLIENTS.add(websocket)
-    remote = websocket.remote_address
-    logger.info("Client connected: %s:%s", remote[0], remote[1])
+class SignalServer:
+    def __init__(self):
+        self.clients = set()
+        self.config = load_config()
+        self.db = Database(self.config["database"]["path"])
+        self.db.create_tables()
+        self.rtlsdr_connected = False
+        self._signal_counter = 0
 
-    try:
-        await websocket.send(json.dumps({
-            "type": "connection_status",
-            "rtlsdr_connected": False,
-            "message": "Faz 1 skeleton",
+    async def handler(self, websocket):
+        self.clients.add(websocket)
+        remote = websocket.remote_address
+        logger.info("Client connected: %s:%s", remote[0], remote[1])
+
+        try:
+            await websocket.send(json.dumps({
+                "type": "connection_status",
+                "rtlsdr_connected": self.rtlsdr_connected,
+                "station": self.config["station"],
+                "region": self.config["region"],
+            }))
+
+            async for message in websocket:
+                try:
+                    data = json.loads(message)
+                    await self.route_message(data, websocket)
+                except json.JSONDecodeError:
+                    logger.warning("Invalid JSON from client")
+        except websockets.exceptions.ConnectionClosed:
+            pass
+        finally:
+            self.clients.discard(websocket)
+            logger.info("Client disconnected: %s:%s", remote[0], remote[1])
+
+    async def route_message(self, data, ws):
+        action = data.get("type") or data.get("action", "")
+        logger.info("Received action: %s", action)
+
+        handlers = {
+            "scan_start": self._handle_not_implemented,
+            "scan_stop": self._handle_not_implemented,
+            "record_start": self._handle_not_implemented,
+            "record_stop": self._handle_not_implemented,
+            "get_decode_history": self._handle_not_implemented,
+            "re_decode": self._handle_not_implemented,
+            "toggle_star": self._handle_not_implemented,
+            "add_note": self._handle_not_implemented,
+            "delete_record": self._handle_not_implemented,
+            "update_config": self._handle_not_implemented,
+            "save_setup": self._handle_not_implemented,
+            "get_rtlsdr_status": self._handle_rtlsdr_status,
+            "replay_start": self._handle_not_implemented,
+            "replay_stop": self._handle_not_implemented,
+        }
+
+        handler = handlers.get(action)
+        if handler:
+            await handler(data, ws)
+        else:
+            await ws.send(json.dumps({
+                "type": "error",
+                "action": action,
+                "message": "unknown_action",
+            }))
+
+    async def _handle_not_implemented(self, data, ws):
+        action = data.get("type") or data.get("action", "")
+        await ws.send(json.dumps({
+            "type": "error",
+            "action": action,
+            "message": "not_implemented",
         }))
 
-        async for message in websocket:
+    async def _handle_rtlsdr_status(self, data, ws):
+        await ws.send(json.dumps({
+            "type": "rtlsdr_status",
+            "connected": self.rtlsdr_connected,
+            "message": "connected" if self.rtlsdr_connected else "no device found",
+        }))
+
+    async def broadcast(self, msg):
+        if not self.clients:
+            return
+        payload = json.dumps(msg) if isinstance(msg, dict) else msg
+        dead = set()
+        for ws in self.clients:
             try:
-                data = json.loads(message)
-                logger.info("Received: %s", data.get("type", "unknown"))
-            except json.JSONDecodeError:
-                logger.warning("Invalid JSON from client")
-    except websockets.exceptions.ConnectionClosed:
-        pass
-    finally:
-        CLIENTS.discard(websocket)
-        logger.info("Client disconnected: %s:%s", remote[0], remote[1])
+                await ws.send(payload)
+            except websockets.exceptions.ConnectionClosed:
+                dead.add(ws)
+        self.clients -= dead
 
+    async def check_rtlsdr(self):
+        while True:
+            try:
+                from rtlsdr import RtlSdr
+                sdr = RtlSdr()
+                sdr.close()
+                was_connected = self.rtlsdr_connected
+                self.rtlsdr_connected = True
+                if not was_connected:
+                    logger.info("RTL-SDR device connected")
+                    await self.broadcast({
+                        "type": "rtlsdr_status",
+                        "connected": True,
+                        "message": "connected",
+                    })
+            except Exception:
+                was_connected = self.rtlsdr_connected
+                self.rtlsdr_connected = False
+                if was_connected:
+                    logger.info("RTL-SDR device disconnected")
+                    await self.broadcast({
+                        "type": "rtlsdr_status",
+                        "connected": False,
+                        "message": "no device found",
+                    })
+            await asyncio.sleep(5)
 
-async def main():
-    logger.info("SIGINT RADAR backend starting on ws://0.0.0.0:8765")
-    async with websockets.serve(handler, "0.0.0.0", 8765):
-        await asyncio.Future()
+    async def fake_data_loop(self):
+        logger.info("Fake data mode active — sending synthetic signals")
+        while True:
+            for template in FAKE_SIGNALS:
+                self._signal_counter += 1
+                signal = {
+                    "type": "signal_new",
+                    "signal": {
+                        "id": f"fake-{self._signal_counter}",
+                        "timestamp": time.time(),
+                        "freq_hz": template["freq_hz"] + random.randint(-5000, 5000),
+                        "band_name": template["band_name"],
+                        "protocol": template["protocol"],
+                        "category": template["category"],
+                        "power_db": template["power_db"] + random.uniform(-5, 5),
+                        "snr_db": template["snr_db"] + random.uniform(-2, 2),
+                        "estimated_distance_km": max(0.1, template["estimated_distance_km"] + random.uniform(-0.5, 0.5)),
+                        "weirdness_score": template["weirdness_score"],
+                    },
+                }
+                await self.broadcast(signal)
+
+            await asyncio.sleep(2)
+
+    async def run(self):
+        ws_host = self.config["websocket"]["host"]
+        ws_port = self.config["websocket"]["port"]
+        fake_mode = self.config["scanner"]["fake_mode"]
+
+        logger.info("SIGINT RADAR backend starting on ws://%s:%d", ws_host, ws_port)
+
+        tasks = []
+        async with websockets.serve(self.handler, ws_host, ws_port):
+            tasks.append(asyncio.create_task(self.check_rtlsdr()))
+
+            if fake_mode:
+                tasks.append(asyncio.create_task(self.fake_data_loop()))
+            else:
+                logger.info("Fake mode disabled — waiting for real RTL-SDR")
+
+            await asyncio.Future()
 
 
 if __name__ == "__main__":
-    main_loop = asyncio.new_event_loop()
+    server = SignalServer()
     try:
-        main_loop.run_until_complete(main())
+        asyncio.run(server.run())
     except KeyboardInterrupt:
         logger.info("Shutting down")
-    finally:
-        main_loop.close()
