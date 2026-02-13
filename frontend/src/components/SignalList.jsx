@@ -1,4 +1,4 @@
-import { getCategoryStyle } from "../utils/colorMapper";
+import { getCategoryStyle } from "../utils/colorMapper"
 
 function WeirdnessBar({ score }) {
   const color =
@@ -6,7 +6,7 @@ function WeirdnessBar({ score }) {
       ? "bg-red-500"
       : score >= 40
         ? "bg-yellow-500"
-        : "bg-green-600";
+        : "bg-green-600"
 
   return (
     <div className="flex items-center gap-1">
@@ -18,7 +18,36 @@ function WeirdnessBar({ score }) {
       </div>
       <span className="text-xs w-6 text-right">{score}</span>
     </div>
-  );
+  )
+}
+
+function MiniSparkline({ history }) {
+  if (!history || history.length < 2) return <span className="text-gray-700">-</span>
+
+  const w = 50
+  const h = 20
+  const values = history.map((p) => p.db)
+  const min = Math.min(...values)
+  const max = Math.max(...values)
+  const range = max - min || 1
+
+  const points = values.map((v, i) => {
+    const x = (i / (values.length - 1)) * w
+    const y = h - ((v - min) / range) * h
+    return `${x},${y}`
+  }).join(" ")
+
+  return (
+    <svg width={w} height={h} className="inline-block">
+      <polyline
+        points={points}
+        fill="none"
+        stroke="#22d3ee"
+        strokeWidth="1"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
 }
 
 export default function SignalList({ signals = [], selectedId, onSelect }) {
@@ -27,7 +56,7 @@ export default function SignalList({ signals = [], selectedId, onSelect }) {
       <p className="text-gray-600 text-center py-4 text-sm">
         Waiting for signals...
       </p>
-    );
+    )
   }
 
   return (
@@ -40,6 +69,7 @@ export default function SignalList({ signals = [], selectedId, onSelect }) {
             <th className="text-left px-2 py-1.5">Protocol</th>
             <th className="text-right px-2 py-1.5">dB</th>
             <th className="text-right px-2 py-1.5">SNR</th>
+            <th className="text-center px-2 py-1.5">Pwr</th>
             <th className="text-right px-2 py-1.5">Dist</th>
             <th className="text-right px-2 py-1.5">Weird</th>
             <th className="text-right px-2 py-1.5">#</th>
@@ -47,10 +77,10 @@ export default function SignalList({ signals = [], selectedId, onSelect }) {
         </thead>
         <tbody>
           {signals.map((s) => {
-            const cat = getCategoryStyle(s.category);
-            const isSelected = s.id === selectedId;
+            const cat = getCategoryStyle(s.category)
+            const isSelected = s.id === selectedId
             const ttlRatio =
-              s.max_ttl > 0 ? (s.ttl ?? s.max_ttl) / s.max_ttl : 1;
+              s.max_ttl > 0 ? (s.ttl ?? s.max_ttl) / s.max_ttl : 1
 
             return (
               <tr
@@ -76,6 +106,9 @@ export default function SignalList({ signals = [], selectedId, onSelect }) {
                 <td className="px-2 py-1 text-right font-mono">
                   {s.snr_db?.toFixed(1)}
                 </td>
+                <td className="px-2 py-1 text-center">
+                  <MiniSparkline history={s.power_history} />
+                </td>
                 <td className="px-2 py-1 text-right font-mono">
                   {s.estimated_distance_km?.toFixed(1)}
                 </td>
@@ -86,10 +119,10 @@ export default function SignalList({ signals = [], selectedId, onSelect }) {
                   {s.count || 1}
                 </td>
               </tr>
-            );
+            )
           })}
         </tbody>
       </table>
     </div>
-  );
+  )
 }

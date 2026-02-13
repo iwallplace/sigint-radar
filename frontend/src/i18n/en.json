@@ -5,7 +5,8 @@
   },
   "nav": {
     "radar": "Radar",
-    "history": "History"
+    "history": "History",
+    "settings": "Settings"
   },
   "status": {
     "ws_on": "WS: on",
@@ -120,6 +121,46 @@
     "select_language": "Select Language",
     "english": "English",
     "turkish": "Turkish"
+  },
+  "settings": {
+    "title": "SETTINGS",
+    "back": "Back",
+    "save": "SAVE",
+    "saved": "Saved!",
+    "section_rtlsdr": "RTL-SDR",
+    "section_scanner": "SCANNER",
+    "section_radar": "RADAR",
+    "section_alerts": "ALERTS",
+    "section_recording": "RECORDING",
+    "section_station": "STATION",
+    "section_interface": "INTERFACE",
+    "gain": "Gain",
+    "ppm": "PPM Correction",
+    "bias_tee": "Bias-T",
+    "sample_rate": "Sample Rate",
+    "threshold": "Signal Threshold",
+    "cycle_delay": "Cycle Delay",
+    "fft_size": "FFT Size",
+    "radar_range": "Radar Range",
+    "weirdness_threshold": "Weirdness Threshold",
+    "sound": "Alert Sound",
+    "desktop_notification": "Desktop Notifications",
+    "max_duration": "Max Duration",
+    "seconds": "sec",
+    "max_disk": "Max Disk",
+    "auto_decode": "Auto Decode",
+    "keep_raw": "Keep Raw Files",
+    "detect_ip": "Detect from IP",
+    "region": "Region",
+    "theme": "Theme",
+    "dark": "Dark",
+    "light": "Light",
+    "language": "Language"
+  },
+  "alert": {
+    "unusual_signal": "UNUSUAL SIGNAL",
+    "weirdness": "Weirdness",
+    "show": "Show"
   },
   "categories": {
     "ism_sensor": "ISM Sensor",

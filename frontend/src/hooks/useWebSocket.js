@@ -1,82 +1,97 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react"
 
-const WS_URL = `ws://${window.location.hostname}:8765`;
-const MAX_BACKOFF = 30000;
+const WS_URL = `ws://${window.location.hostname}:8765`
+const MAX_BACKOFF = 30000
 
-const MAX_DECODE_LINES = 200;
+const MAX_DECODE_LINES = 200
+const MAX_ALERTS = 50
 
 export default function useWebSocket({ onSignalNew, onSignalUpdate, onSignalRemoved } = {}) {
-  const [connected, setConnected] = useState(false);
-  const [rtlsdrConnected, setRtlsdrConnected] = useState(false);
-  const [station, setStation] = useState(null);
-  const [region, setRegion] = useState(null);
-  const [bands, setBands] = useState([]);
-  const [bandStatus, setBandStatus] = useState({});
-  const [scanning, setScanning] = useState(false);
-  const [decodeLines, setDecodeLines] = useState([]);
-  const [recording, setRecording] = useState(false);
-  const [recordProgress, setRecordProgress] = useState(null);
-  const [recordResult, setRecordResult] = useState(null);
-  const [setupComplete, setSetupComplete] = useState(null);
-  const [serverLanguage, setServerLanguage] = useState(null);
+  const [connected, setConnected] = useState(false)
+  const [rtlsdrConnected, setRtlsdrConnected] = useState(false)
+  const [station, setStation] = useState(null)
+  const [region, setRegion] = useState(null)
+  const [bands, setBands] = useState([])
+  const [bandStatus, setBandStatus] = useState({})
+  const [scanning, setScanning] = useState(false)
+  const [decodeLines, setDecodeLines] = useState([])
+  const [recording, setRecording] = useState(false)
+  const [recordProgress, setRecordProgress] = useState(null)
+  const [recordResult, setRecordResult] = useState(null)
+  const [setupComplete, setSetupComplete] = useState(null)
+  const [serverLanguage, setServerLanguage] = useState(null)
+  const [serverConfig, setServerConfig] = useState(null)
+  const [alerts, setAlerts] = useState([])
 
-  const wsRef = useRef(null);
-  const backoffRef = useRef(1000);
-  const reconnectTimer = useRef(null);
-  const mountedRef = useRef(true);
-  const callbacksRef = useRef({ onSignalNew, onSignalUpdate, onSignalRemoved });
+  const wsRef = useRef(null)
+  const backoffRef = useRef(1000)
+  const reconnectTimer = useRef(null)
+  const mountedRef = useRef(true)
+  const callbacksRef = useRef({ onSignalNew, onSignalUpdate, onSignalRemoved })
 
-  callbacksRef.current = { onSignalNew, onSignalUpdate, onSignalRemoved };
+  callbacksRef.current = { onSignalNew, onSignalUpdate, onSignalRemoved }
 
   const connect = useCallback(() => {
-    if (!mountedRef.current) return;
+    if (!mountedRef.current) return
 
-    const ws = new WebSocket(WS_URL);
-    wsRef.current = ws;
+    const ws = new WebSocket(WS_URL)
+    wsRef.current = ws
 
     ws.onopen = () => {
-      console.log("[WS] Connected");
-      setConnected(true);
-      backoffRef.current = 1000;
-    };
+      console.log("[WS] Connected")
+      setConnected(true)
+      backoffRef.current = 1000
+    }
 
     ws.onmessage = (event) => {
       try {
-        const data = JSON.parse(event.data);
-        const cb = callbacksRef.current;
+        const data = JSON.parse(event.data)
+        const cb = callbacksRef.current
 
         switch (data.type) {
           case "connection_status":
-            setRtlsdrConnected(data.rtlsdr_connected);
-            if (data.station) setStation(data.station);
-            if (data.region) setRegion(data.region);
-            if (data.bands) setBands(data.bands);
-            if (data.band_status) setBandStatus(data.band_status);
-            if (data.scanning !== undefined) setScanning(data.scanning);
-            if (data.setup_complete !== undefined) setSetupComplete(data.setup_complete);
-            if (data.language) setServerLanguage(data.language);
+            setRtlsdrConnected(data.rtlsdr_connected)
+            if (data.station) setStation(data.station)
+            if (data.region) setRegion(data.region)
+            if (data.bands) setBands(data.bands)
+            if (data.band_status) setBandStatus(data.band_status)
+            if (data.scanning !== undefined) setScanning(data.scanning)
+            if (data.setup_complete !== undefined) setSetupComplete(data.setup_complete)
+            if (data.language) setServerLanguage(data.language)
+            if (data.config) setServerConfig(data.config)
             if (data.signals) {
               for (const sig of data.signals) {
-                cb.onSignalNew?.(sig);
+                cb.onSignalNew?.(sig)
               }
             }
-            break;
+            break
 
           case "rtlsdr_status":
-            setRtlsdrConnected(data.connected);
-            break;
+            setRtlsdrConnected(data.connected)
+            break
 
           case "signal_new":
-            cb.onSignalNew?.(data.signal);
-            break;
+            cb.onSignalNew?.(data.signal)
+            break
 
           case "signal_update":
-            cb.onSignalUpdate?.(data.signal);
-            break;
+            cb.onSignalUpdate?.(data.signal)
+            break
 
           case "signal_removed":
-            cb.onSignalRemoved?.(data.signal_id);
-            break;
+            cb.onSignalRemoved?.(data.signal_id)
+            break
+
+          case "alert":
+            setAlerts((prev) => {
+              const next = [...prev, { ...data, _id: Date.now() + Math.random() }]
+              return next.length > MAX_ALERTS ? next.slice(-MAX_ALERTS) : next
+            })
+            break
+
+          case "config_updated":
+            if (data.config) setServerConfig(data.config)
+            break
 
           case "decode_line":
             setDecodeLines((prev) => {
@@ -91,30 +106,30 @@ export default function useWebSocket({ onSignalNew, onSignalUpdate, onSignalRemo
                   count: data.count,
                   band: data.band,
                 },
-              ];
+              ]
               return next.length > MAX_DECODE_LINES
                 ? next.slice(-MAX_DECODE_LINES)
-                : next;
-            });
-            break;
+                : next
+            })
+            break
 
           case "record_started":
-            setRecording(true);
-            setRecordProgress(null);
-            setRecordResult(null);
-            break;
+            setRecording(true)
+            setRecordProgress(null)
+            setRecordResult(null)
+            break
 
           case "record_progress":
             setRecordProgress({
               elapsed_seconds: data.elapsed_seconds,
               file_size_mb: data.file_size_mb,
               max_seconds: data.max_seconds,
-            });
-            break;
+            })
+            break
 
           case "record_complete":
-            setRecording(false);
-            setRecordProgress(null);
+            setRecording(false)
+            setRecordProgress(null)
             setRecordResult({
               record_id: data.record_id,
               decode_count: data.decode_count,
@@ -124,34 +139,34 @@ export default function useWebSocket({ onSignalNew, onSignalUpdate, onSignalRemo
               duration_seconds: data.duration_seconds,
               file_size_bytes: data.file_size_bytes,
               summary: data.summary,
-            });
-            break;
+            })
+            break
 
           case "record_error":
-            setRecording(false);
-            setRecordProgress(null);
-            console.error("[WS] Record error:", data.error);
-            break;
+            setRecording(false)
+            setRecordProgress(null)
+            console.error("[WS] Record error:", data.error)
+            break
 
           case "scan_resumed":
-            setScanning(true);
-            break;
+            setScanning(true)
+            break
 
           case "scan_band_active":
-            break;
+            break
 
           case "band_status_update":
-            if (data.band_status) setBandStatus(data.band_status);
-            break;
+            if (data.band_status) setBandStatus(data.band_status)
+            break
 
           case "scan_stopped":
-            setScanning(false);
-            break;
+            setScanning(false)
+            break
 
           case "bands_list":
-            if (data.bands) setBands(data.bands);
-            if (data.band_status) setBandStatus(data.band_status);
-            break;
+            if (data.bands) setBands(data.bands)
+            if (data.band_status) setBandStatus(data.band_status)
+            break
 
           case "decode_history":
           case "star_toggled":
@@ -161,67 +176,67 @@ export default function useWebSocket({ onSignalNew, onSignalUpdate, onSignalRemo
           case "disk_usage":
             // Forward to history panel handler
             if (window.__historyWsHandler) {
-              window.__historyWsHandler(data);
+              window.__historyWsHandler(data)
             }
-            break;
+            break
 
           case "error":
-            console.warn("[WS] Error:", data.action, data.message);
-            break;
+            console.warn("[WS] Error:", data.action, data.message)
+            break
 
           default:
-            console.log("[WS]", data.type, data);
+            console.log("[WS]", data.type, data)
         }
       } catch {
         // ignore parse errors
       }
-    };
+    }
 
     ws.onclose = () => {
-      setConnected(false);
-      if (!mountedRef.current) return;
+      setConnected(false)
+      if (!mountedRef.current) return
 
-      const delay = backoffRef.current;
-      console.log(`[WS] Disconnected — reconnecting in ${delay}ms`);
-      backoffRef.current = Math.min(delay * 2, MAX_BACKOFF);
-      reconnectTimer.current = setTimeout(connect, delay);
-    };
+      const delay = backoffRef.current
+      console.log(`[WS] Disconnected — reconnecting in ${delay}ms`)
+      backoffRef.current = Math.min(delay * 2, MAX_BACKOFF)
+      reconnectTimer.current = setTimeout(connect, delay)
+    }
 
     ws.onerror = () => {
-      ws.close();
-    };
-  }, []);
+      ws.close()
+    }
+  }, [])
 
   useEffect(() => {
-    mountedRef.current = true;
-    connect();
+    mountedRef.current = true
+    connect()
 
     return () => {
-      mountedRef.current = false;
-      clearTimeout(reconnectTimer.current);
+      mountedRef.current = false
+      clearTimeout(reconnectTimer.current)
       if (wsRef.current) {
-        wsRef.current.close();
+        wsRef.current.close()
       }
-    };
-  }, [connect]);
+    }
+  }, [connect])
 
   const sendMessage = useCallback((action, data = {}) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: action, ...data }));
+      wsRef.current.send(JSON.stringify({ type: action, ...data }))
     }
-  }, []);
+  }, [])
 
   const scanStart = useCallback((bandNames) => {
-    setScanning(true);
-    sendMessage("scan_start", { bands: bandNames });
-  }, [sendMessage]);
+    setScanning(true)
+    sendMessage("scan_start", { bands: bandNames })
+  }, [sendMessage])
 
   const scanStop = useCallback(() => {
-    sendMessage("scan_stop");
-  }, [sendMessage]);
+    sendMessage("scan_stop")
+  }, [sendMessage])
 
   const recordStart = useCallback((signal, duration) => {
-    setRecordResult(null);
+    setRecordResult(null)
     sendMessage("record_start", {
       freq_hz: signal.freq_hz,
       duration,
@@ -231,12 +246,12 @@ export default function useWebSocket({ onSignalNew, onSignalUpdate, onSignalRemo
         estimated_distance_km: signal.estimated_distance_km,
         weirdness_score: signal.weirdness_score,
       },
-    });
-  }, [sendMessage]);
+    })
+  }, [sendMessage])
 
   const recordStop = useCallback(() => {
-    sendMessage("record_stop");
-  }, [sendMessage]);
+    sendMessage("record_stop")
+  }, [sendMessage])
 
   return {
     connected,
@@ -257,5 +272,7 @@ export default function useWebSocket({ onSignalNew, onSignalUpdate, onSignalRemo
     recordStop,
     setupComplete,
     serverLanguage,
-  };
+    serverConfig,
+    alerts,
+  }
 }

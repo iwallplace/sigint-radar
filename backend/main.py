@@ -59,6 +59,15 @@ class SignalServer:
                 "scanning": self.scanning,
                 "setup_complete": self.config.get("setup_complete", False),
                 "language": self.config.get("ui", {}).get("language", "en"),
+                "config": {
+                    "rtlsdr": self.config.get("rtlsdr", {}),
+                    "scanner": self.config.get("scanner", {}),
+                    "ui": self.config.get("ui", {}),
+                    "alerts": self.config.get("alerts", {}),
+                    "recording": self.config.get("recording", {}),
+                    "station": self.config.get("station", {}),
+                    "region": self.config.get("region", {}),
+                },
             }))
 
             # Send current active signals to new client
@@ -96,7 +105,7 @@ class SignalServer:
             "add_note": self._handle_add_note,
             "delete_record": self._handle_delete_record,
             "get_disk_usage": self._handle_get_disk_usage,
-            "update_config": self._handle_not_implemented,
+            "update_config": self._handle_update_config,
             "save_setup": self._handle_save_setup,
             "get_rtlsdr_status": self._handle_rtlsdr_status,
             "replay_start": self._handle_not_implemented,
@@ -495,6 +504,83 @@ class SignalServer:
                 "type": "error", "action": "save_setup", "message": str(e),
             }))
 
+    async def _handle_update_config(self, data, ws):
+        """Live config update from Settings page — no restart needed."""
+        try:
+            section = data.get("section", "")
+            values = data.get("values", {})
+
+            if not section or not values:
+                await ws.send(json.dumps({
+                    "type": "error", "action": "update_config",
+                    "message": "missing_section_or_values",
+                }))
+                return
+
+            # Update config in memory
+            if section not in self.config:
+                self.config[section] = {}
+            if isinstance(self.config[section], dict):
+                self.config[section].update(values)
+            else:
+                self.config[section] = values
+
+            # Save to disk
+            save_config(self.config)
+
+            # Apply live changes
+            if section == "rtlsdr":
+                self.recorder = SignalRecorder(config=self.config)
+                logger.info("RTL-SDR config updated: %s", values)
+
+            elif section == "scanner":
+                logger.info("Scanner config updated: %s", values)
+
+            elif section == "ui":
+                logger.info("UI config updated: %s", values)
+
+            elif section == "alerts":
+                logger.info("Alerts config updated: %s", values)
+
+            elif section == "recording":
+                self.recorder = SignalRecorder(config=self.config)
+                logger.info("Recording config updated: %s", values)
+
+            elif section == "station":
+                logger.info("Station config updated: %s", values)
+
+            elif section == "region":
+                from regions import detect_region
+                self.scan_engine = ScanEngine(
+                    config=self.config, cluster=self.cluster
+                )
+                self.band_status = {}
+                for band in self.scan_engine.get_bands_info():
+                    self.band_status[band["name"]] = "idle"
+                logger.info("Region config updated: %s", values)
+
+            # Broadcast config_updated to all clients
+            await self.broadcast({
+                "type": "config_updated",
+                "section": section,
+                "values": values,
+                "config": {
+                    "rtlsdr": self.config.get("rtlsdr", {}),
+                    "scanner": self.config.get("scanner", {}),
+                    "ui": self.config.get("ui", {}),
+                    "alerts": self.config.get("alerts", {}),
+                    "recording": self.config.get("recording", {}),
+                    "station": self.config.get("station", {}),
+                    "region": self.config.get("region", {}),
+                },
+            })
+
+        except Exception as e:
+            logger.error("Error updating config: %s", e)
+            await ws.send(json.dumps({
+                "type": "error", "action": "update_config", "message": str(e),
+            }))
+
     async def _handle_get_disk_usage(self, data, ws):
         try:
             usage = self.db.get_disk_usage()
@@ -535,6 +621,20 @@ class SignalServer:
                     if self.active_band:
                         self.band_status[self.active_band] = "found"
                     await self.broadcast(event)
+
+                    # Alert if weirdness exceeds threshold
+                    sig = event.get("signal", {})
+                    threshold = self.config.get("alerts", {}).get(
+                        "weirdness_threshold", 40
+                    )
+                    w_score = sig.get("weirdness_score", 0)
+                    if w_score >= threshold:
+                        await self.broadcast({
+                            "type": "alert",
+                            "signal": sig,
+                            "weirdness": w_score,
+                            "reason": f"Weirdness {w_score} >= threshold {threshold}",
+                        })
 
                 elif event["type"] == "decode_line":
                     await self.broadcast(event)

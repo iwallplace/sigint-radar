@@ -1,18 +1,20 @@
-import { useState, useEffect } from "react";
-import { useI18n } from "./i18n";
-import useWebSocket from "./hooks/useWebSocket";
-import useSignalData from "./hooks/useSignalData";
-import RadarScreen from "./components/RadarScreen";
-import SignalList from "./components/SignalList";
-import BandCatalog from "./components/BandCatalog";
-import DecodePanel from "./components/DecodePanel";
-import SignalDetail from "./components/SignalDetail";
-import DecodeHistory from "./components/DecodeHistory";
-import SetupWizard from "./components/SetupWizard";
+import { useState, useEffect } from "react"
+import { useI18n } from "./i18n"
+import useWebSocket from "./hooks/useWebSocket"
+import useSignalData from "./hooks/useSignalData"
+import RadarScreen from "./components/RadarScreen"
+import SignalList from "./components/SignalList"
+import BandCatalog from "./components/BandCatalog"
+import DecodePanel from "./components/DecodePanel"
+import SignalDetail from "./components/SignalDetail"
+import DecodeHistory from "./components/DecodeHistory"
+import SetupWizard from "./components/SetupWizard"
+import Settings from "./components/Settings"
+import WeirdnessAlert from "./components/WeirdnessAlert"
 
 export default function App() {
-  const { t, setLang } = useI18n();
-  const [activeTab, setActiveTab] = useState("radar");
+  const { t, setLang } = useI18n()
+  const [activeTab, setActiveTab] = useState("radar")
 
   const {
     signalList,
@@ -22,7 +24,7 @@ export default function App() {
     addSignal,
     updateSignal,
     removeSignal,
-  } = useSignalData();
+  } = useSignalData()
 
   const {
     connected,
@@ -41,18 +43,20 @@ export default function App() {
     recordStop,
     setupComplete,
     serverLanguage,
+    serverConfig,
+    alerts,
   } = useWebSocket({
     onSignalNew: addSignal,
     onSignalUpdate: updateSignal,
     onSignalRemoved: removeSignal,
-  });
+  })
 
   // Sync language from server
   useEffect(() => {
     if (serverLanguage) {
-      setLang(serverLanguage);
+      setLang(serverLanguage)
     }
-  }, [serverLanguage, setLang]);
+  }, [serverLanguage, setLang])
 
   // Show setup wizard if setup not complete (null = loading)
   if (setupComplete === false) {
@@ -62,7 +66,7 @@ export default function App() {
         rtlsdrConnected={rtlsdrConnected}
         bands={bands}
       />
-    );
+    )
   }
 
   // Loading state while waiting for connection_status
@@ -76,11 +80,24 @@ export default function App() {
           </div>
         </div>
       </div>
-    );
+    )
   }
+
+  const alertConfig = serverConfig?.alerts || {}
 
   return (
     <div className="h-screen bg-gray-950 text-green-400 font-mono flex">
+      {/* Weirdness alert toasts */}
+      <WeirdnessAlert
+        alerts={alerts}
+        soundEnabled={alertConfig.sound !== false}
+        desktopEnabled={alertConfig.desktop_notification !== false}
+        onShow={(signalId) => {
+          setSelectedId(signalId)
+          setActiveTab("radar")
+        }}
+      />
+
       {/* Left panel — Band Catalog (only on radar tab) */}
       {activeTab === "radar" && (
         <BandCatalog
@@ -111,6 +128,11 @@ export default function App() {
                 active={activeTab === "history"}
                 onClick={() => setActiveTab("history")}
                 label={t("nav.history")}
+              />
+              <TabButton
+                active={activeTab === "settings"}
+                onClick={() => setActiveTab("settings")}
+                label={t("nav.settings")}
               />
             </div>
           </div>
@@ -207,15 +229,21 @@ export default function App() {
               />
             )}
           </div>
-        ) : (
+        ) : activeTab === "history" ? (
           <DecodeHistory
+            sendMessage={sendMessage}
+            onBack={() => setActiveTab("radar")}
+          />
+        ) : (
+          <Settings
+            config={serverConfig}
             sendMessage={sendMessage}
             onBack={() => setActiveTab("radar")}
           />
         )}
       </div>
     </div>
-  );
+  )
 }
 
 function TabButton({ active, onClick, label }) {
@@ -230,5 +258,5 @@ function TabButton({ active, onClick, label }) {
     >
       {label}
     </button>
-  );
+  )
 }

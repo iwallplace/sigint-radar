@@ -17,12 +17,21 @@ TTL = {
 }
 
 FREQ_TOLERANCE_HZ = 5000
+POWER_HISTORY_MAX = 300  # 5 min at 1/sec
 
 
 class SignalCluster:
     def __init__(self):
         self._clusters = {}
         self._next_id = 1
+
+    def _append_power(self, cluster, power_db):
+        """Append a power reading with timestamp, keep last 300 entries."""
+        entry = {"t": time.time(), "db": power_db}
+        history = cluster["power_history"]
+        history.append(entry)
+        if len(history) > POWER_HISTORY_MAX:
+            cluster["power_history"] = history[-POWER_HISTORY_MAX:]
 
     def add_signal(self, sig):
         """Add or merge a signal into clusters.
@@ -35,6 +44,7 @@ class SignalCluster:
         freq = sig.get("freq_hz", 0)
         protocol = sig.get("protocol", "unknown")
         category = sig.get("category", "unknown")
+        power_db = sig.get("power_db", -100)
 
         for cid, cluster in self._clusters.items():
             if (
@@ -43,7 +53,7 @@ class SignalCluster:
             ):
                 cluster["count"] += 1
                 cluster["last_seen"] = time.time()
-                cluster["power_db"] = sig.get("power_db", cluster["power_db"])
+                cluster["power_db"] = power_db
                 cluster["snr_db"] = sig.get("snr_db", cluster["snr_db"])
                 cluster["estimated_distance_km"] = sig.get(
                     "estimated_distance_km", cluster["estimated_distance_km"]
@@ -54,11 +64,13 @@ class SignalCluster:
                 max_ttl = TTL.get(category, TTL["default"])
                 cluster["ttl"] = max_ttl
                 cluster["max_ttl"] = max_ttl
+                self._append_power(cluster, power_db)
                 return cid, False
 
         cid = f"sig-{self._next_id}"
         self._next_id += 1
         max_ttl = TTL.get(category, TTL["default"])
+        now = time.time()
 
         self._clusters[cid] = {
             "id": cid,
@@ -66,15 +78,16 @@ class SignalCluster:
             "protocol": protocol,
             "category": category,
             "band_name": sig.get("band_name", ""),
-            "power_db": sig.get("power_db", -100),
+            "power_db": power_db,
             "snr_db": sig.get("snr_db", 0),
             "estimated_distance_km": sig.get("estimated_distance_km", 0),
             "weirdness_score": sig.get("weirdness_score", 0),
             "count": 1,
-            "first_seen": time.time(),
-            "last_seen": time.time(),
+            "first_seen": now,
+            "last_seen": now,
             "ttl": max_ttl,
             "max_ttl": max_ttl,
+            "power_history": [{"t": now, "db": power_db}],
         }
         return cid, True
 

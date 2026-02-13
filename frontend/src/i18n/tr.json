@@ -5,7 +5,8 @@
   },
   "nav": {
     "radar": "Radar",
-    "history": "Gecmis"
+    "history": "Gecmis",
+    "settings": "Ayarlar"
   },
   "status": {
     "ws_on": "WS: acik",
@@ -120,6 +121,46 @@
     "select_language": "Dil Secin",
     "english": "English",
     "turkish": "Turkce"
+  },
+  "settings": {
+    "title": "AYARLAR",
+    "back": "Geri",
+    "save": "KAYDET",
+    "saved": "Kaydedildi!",
+    "section_rtlsdr": "RTL-SDR",
+    "section_scanner": "TARAYICI",
+    "section_radar": "RADAR",
+    "section_alerts": "BILDIRIMLER",
+    "section_recording": "KAYIT",
+    "section_station": "ISTASYON",
+    "section_interface": "ARAYUZ",
+    "gain": "Kazanc",
+    "ppm": "PPM Duzeltme",
+    "bias_tee": "Bias-T",
+    "sample_rate": "Ornekleme Hizi",
+    "threshold": "Sinyal Esigi",
+    "cycle_delay": "Dongu Gecikmesi",
+    "fft_size": "FFT Boyutu",
+    "radar_range": "Radar Menzili",
+    "weirdness_threshold": "Gariplik Esigi",
+    "sound": "Uyari Sesi",
+    "desktop_notification": "Masaustu Bildirimleri",
+    "max_duration": "Maks Sure",
+    "seconds": "sn",
+    "max_disk": "Maks Disk",
+    "auto_decode": "Otomatik Decode",
+    "keep_raw": "Ham Dosyalari Sakla",
+    "detect_ip": "IP'den Bul",
+    "region": "Bolge",
+    "theme": "Tema",
+    "dark": "Koyu",
+    "light": "Acik",
+    "language": "Dil"
+  },
+  "alert": {
+    "unusual_signal": "OLAGAN DISI SINYAL",
+    "weirdness": "Gariplik",
+    "show": "Goster"
   },
   "categories": {
     "ism_sensor": "ISM Sensor",
