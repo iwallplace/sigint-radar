@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import os
 
 import websockets
 
@@ -87,11 +88,12 @@ class SignalServer:
             "get_bands": self._handle_get_bands,
             "record_start": self._handle_record_start,
             "record_stop": self._handle_record_stop,
-            "get_decode_history": self._handle_not_implemented,
-            "re_decode": self._handle_not_implemented,
-            "toggle_star": self._handle_not_implemented,
-            "add_note": self._handle_not_implemented,
-            "delete_record": self._handle_not_implemented,
+            "get_decode_history": self._handle_get_decode_history,
+            "re_decode": self._handle_re_decode,
+            "toggle_star": self._handle_toggle_star,
+            "add_note": self._handle_add_note,
+            "delete_record": self._handle_delete_record,
+            "get_disk_usage": self._handle_get_disk_usage,
             "update_config": self._handle_not_implemented,
             "save_setup": self._handle_not_implemented,
             "get_rtlsdr_status": self._handle_rtlsdr_status,
@@ -208,6 +210,10 @@ class SignalServer:
         sample_rate = self.config.get("rtlsdr", {}).get("sample_rate", 2400000)
         gain = self.config.get("rtlsdr", {}).get("gain", 40)
 
+        # Auto-cleanup if disk is full
+        max_disk = self.config.get("recording", {}).get("max_disk_usage_gb", 10)
+        self.db.auto_cleanup(max_disk)
+
         try:
             async for progress in self.recorder.start_recording(
                 freq_hz, sample_rate, duration, gain
@@ -281,6 +287,161 @@ class SignalServer:
     async def _handle_record_stop(self, data, ws):
         if self.recording:
             self.recorder.stop_recording()
+
+    async def _handle_get_decode_history(self, data, ws):
+        try:
+            records, total = self.db.get_decode_history(
+                limit=data.get("limit", 50),
+                offset=data.get("offset", 0),
+                category=data.get("category"),
+                starred_only=data.get("starred_only", False),
+                freq_min=data.get("freq_min"),
+                freq_max=data.get("freq_max"),
+                search_text=data.get("search_text"),
+                date_from=data.get("date_from"),
+                date_to=data.get("date_to"),
+            )
+            disk_usage = self.db.get_disk_usage()
+            max_disk = self.config.get("recording", {}).get("max_disk_usage_gb", 10)
+            await ws.send(json.dumps({
+                "type": "decode_history",
+                "records": records,
+                "total": total,
+                "disk_usage_bytes": disk_usage,
+                "max_disk_gb": max_disk,
+            }))
+        except Exception as e:
+            logger.error("Error getting decode history: %s", e)
+            await ws.send(json.dumps({
+                "type": "error",
+                "action": "get_decode_history",
+                "message": str(e),
+            }))
+
+    async def _handle_toggle_star(self, data, ws):
+        try:
+            record_id = data.get("record_id")
+            if not record_id:
+                await ws.send(json.dumps({
+                    "type": "error", "action": "toggle_star",
+                    "message": "no_record_id",
+                }))
+                return
+            starred = self.db.toggle_star(record_id)
+            await ws.send(json.dumps({
+                "type": "star_toggled",
+                "record_id": record_id,
+                "starred": starred,
+            }))
+        except Exception as e:
+            logger.error("Error toggling star: %s", e)
+            await ws.send(json.dumps({
+                "type": "error", "action": "toggle_star", "message": str(e),
+            }))
+
+    async def _handle_add_note(self, data, ws):
+        try:
+            record_id = data.get("record_id")
+            text = data.get("text", "")
+            if not record_id:
+                await ws.send(json.dumps({
+                    "type": "error", "action": "add_note",
+                    "message": "no_record_id",
+                }))
+                return
+            ok = self.db.add_note(record_id, text)
+            await ws.send(json.dumps({
+                "type": "note_added",
+                "record_id": record_id,
+                "ok": ok,
+            }))
+        except Exception as e:
+            logger.error("Error adding note: %s", e)
+            await ws.send(json.dumps({
+                "type": "error", "action": "add_note", "message": str(e),
+            }))
+
+    async def _handle_delete_record(self, data, ws):
+        try:
+            record_id = data.get("record_id")
+            if not record_id:
+                await ws.send(json.dumps({
+                    "type": "error", "action": "delete_record",
+                    "message": "no_record_id",
+                }))
+                return
+            ok = self.db.delete_record(record_id, delete_files=data.get("delete_files", True))
+            await ws.send(json.dumps({
+                "type": "record_deleted",
+                "record_id": record_id,
+                "ok": ok,
+            }))
+        except Exception as e:
+            logger.error("Error deleting record: %s", e)
+            await ws.send(json.dumps({
+                "type": "error", "action": "delete_record", "message": str(e),
+            }))
+
+    async def _handle_re_decode(self, data, ws):
+        try:
+            record_id = data.get("record_id")
+            decoder_override = data.get("decoder")
+            if not record_id:
+                await ws.send(json.dumps({
+                    "type": "error", "action": "re_decode",
+                    "message": "no_record_id",
+                }))
+                return
+
+            record = self.db.get_record(record_id)
+            if not record:
+                await ws.send(json.dumps({
+                    "type": "error", "action": "re_decode",
+                    "message": "record_not_found",
+                }))
+                return
+
+            raw_path = record.get("raw_path")
+            freq_hz = record.get("freq_hz")
+            if not raw_path or not os.path.isfile(raw_path):
+                await ws.send(json.dumps({
+                    "type": "error", "action": "re_decode",
+                    "message": "raw_file_missing",
+                }))
+                return
+
+            json_path, decode_result = decode_file(raw_path, freq_hz, decoder_override)
+            self.db.update_decode_result(
+                record_id,
+                json_path=json_path,
+                result_json=json.dumps(decode_result),
+                protocol=decode_result.get("protocol"),
+                category=decode_result.get("category"),
+                decoder_used=decode_result.get("decoder"),
+                decode_count=decode_result.get("count", 0),
+            )
+            updated = self.db.get_record(record_id)
+            await ws.send(json.dumps({
+                "type": "re_decode_complete",
+                "record": updated,
+            }))
+        except Exception as e:
+            logger.error("Error re-decoding: %s", e)
+            await ws.send(json.dumps({
+                "type": "error", "action": "re_decode", "message": str(e),
+            }))
+
+    async def _handle_get_disk_usage(self, data, ws):
+        try:
+            usage = self.db.get_disk_usage()
+            max_disk = self.config.get("recording", {}).get("max_disk_usage_gb", 10)
+            await ws.send(json.dumps({
+                "type": "disk_usage",
+                "disk_usage_bytes": usage,
+                "max_disk_gb": max_disk,
+            }))
+        except Exception as e:
+            logger.error("Error getting disk usage: %s", e)
 
     async def _run_scan(self, band_names):
         """Run scan engine and broadcast events."""

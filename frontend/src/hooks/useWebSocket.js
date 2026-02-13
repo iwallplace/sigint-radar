@@ -149,6 +149,18 @@ export default function useWebSocket({ onSignalNew, onSignalUpdate, onSignalRemo
             if (data.band_status) setBandStatus(data.band_status);
             break;
 
+          case "decode_history":
+          case "star_toggled":
+          case "note_added":
+          case "record_deleted":
+          case "re_decode_complete":
+          case "disk_usage":
+            // Forward to history panel handler
+            if (window.__historyWsHandler) {
+              window.__historyWsHandler(data);
+            }
+            break;
+
           case "error":
             console.warn("[WS] Error:", data.action, data.message);
             break;
