@@ -3,12 +3,14 @@ import json
 import logging
 import random
 import time
-import uuid
 
 import websockets
 
 from config import load_config
 from database import Database
+from signal_cluster import SignalCluster
+from distance_estimator import estimate_distance_km
+from weirdness_scorer import calculate_weirdness
 
 logging.basicConfig(
     level=logging.INFO,
@@ -25,8 +27,6 @@ FAKE_SIGNALS = [
         "category": "weather_station",
         "power_db": -45,
         "snr_db": 18,
-        "estimated_distance_km": 1.2,
-        "weirdness_score": 10,
     },
     {
         "freq_hz": 433200000,
@@ -35,8 +35,6 @@ FAKE_SIGNALS = [
         "category": "unknown",
         "power_db": -72,
         "snr_db": 6,
-        "estimated_distance_km": 8.5,
-        "weirdness_score": 75,
     },
     {
         "freq_hz": 446006250,
@@ -45,8 +43,6 @@ FAKE_SIGNALS = [
         "category": "radio",
         "power_db": -55,
         "snr_db": 12,
-        "estimated_distance_km": 3.0,
-        "weirdness_score": 5,
     },
     {
         "freq_hz": 137100000,
@@ -55,8 +51,6 @@ FAKE_SIGNALS = [
         "category": "satellite",
         "power_db": -90,
         "snr_db": 8,
-        "estimated_distance_km": 800,
-        "weirdness_score": 15,
     },
     {
         "freq_hz": 1090000000,
@@ -65,8 +59,6 @@ FAKE_SIGNALS = [
         "category": "aircraft",
         "power_db": -60,
         "snr_db": 20,
-        "estimated_distance_km": 120,
-        "weirdness_score": 0,
     },
 ]
 
@@ -78,7 +70,8 @@ class SignalServer:
         self.db = Database(self.config["database"]["path"])
         self.db.create_tables()
         self.rtlsdr_connected = False
-        self._signal_counter = 0
+        self.cluster = SignalCluster()
+        self.priority_bands = self.config.get("priority_bands", [])
 
     async def handler(self, websocket):
         self.clients.add(websocket)
@@ -92,6 +85,13 @@ class SignalServer:
                 "station": self.config["station"],
                 "region": self.config["region"],
             }))
+
+            # Send current active signals to new client
+            for cid, cluster in self.cluster.get_all().items():
+                await websocket.send(json.dumps({
+                    "type": "signal_new",
+                    "signal": cluster,
+                }))
 
             async for message in websocket:
                 try:
@@ -190,27 +190,65 @@ class SignalServer:
                     })
             await asyncio.sleep(5)
 
+    async def ttl_tick_loop(self):
+        """Decrement TTL every second and broadcast removals."""
+        while True:
+            expired = self.cluster.tick()
+            for cid in expired:
+                await self.broadcast({
+                    "type": "signal_removed",
+                    "signal_id": cid,
+                })
+
+            # Broadcast TTL updates for remaining signals
+            for cid, cluster in self.cluster.get_all().items():
+                await self.broadcast({
+                    "type": "signal_update",
+                    "signal": {
+                        "id": cid,
+                        "ttl": cluster["ttl"],
+                        "max_ttl": cluster["max_ttl"],
+                    },
+                })
+
+            await asyncio.sleep(1)
+
     async def fake_data_loop(self):
         logger.info("Fake data mode active — sending synthetic signals")
         while True:
             for template in FAKE_SIGNALS:
-                self._signal_counter += 1
-                signal = {
-                    "type": "signal_new",
-                    "signal": {
-                        "id": f"fake-{self._signal_counter}",
-                        "timestamp": time.time(),
-                        "freq_hz": template["freq_hz"] + random.randint(-5000, 5000),
-                        "band_name": template["band_name"],
-                        "protocol": template["protocol"],
-                        "category": template["category"],
-                        "power_db": template["power_db"] + random.uniform(-5, 5),
-                        "snr_db": template["snr_db"] + random.uniform(-2, 2),
-                        "estimated_distance_km": max(0.1, template["estimated_distance_km"] + random.uniform(-0.5, 0.5)),
-                        "weirdness_score": template["weirdness_score"],
-                    },
+                freq = template["freq_hz"] + random.randint(-5000, 5000)
+                power = template["power_db"] + random.uniform(-5, 5)
+                freq_mhz = freq / 1e6
+                distance = estimate_distance_km(
+                    freq_mhz, power, category=template["category"]
+                )
+                sig = {
+                    "freq_hz": freq,
+                    "band_name": template["band_name"],
+                    "protocol": template["protocol"],
+                    "category": template["category"],
+                    "power_db": power,
+                    "snr_db": template["snr_db"] + random.uniform(-2, 2),
+                    "estimated_distance_km": distance,
                 }
-                await self.broadcast(signal)
+                sig["weirdness_score"] = calculate_weirdness(
+                    sig, self.priority_bands
+                )
+
+                cid, is_new = self.cluster.add_signal(sig)
+                cluster = self.cluster.get_cluster(cid)
+
+                if is_new:
+                    await self.broadcast({
+                        "type": "signal_new",
+                        "signal": cluster,
+                    })
+                else:
+                    await self.broadcast({
+                        "type": "signal_update",
+                        "signal": cluster,
+                    })
 
             await asyncio.sleep(2)
 
@@ -221,12 +259,12 @@ class SignalServer:
 
         logger.info("SIGINT RADAR backend starting on ws://%s:%d", ws_host, ws_port)
 
-        tasks = []
         async with websockets.serve(self.handler, ws_host, ws_port):
-            tasks.append(asyncio.create_task(self.check_rtlsdr()))
+            asyncio.create_task(self.check_rtlsdr())
+            asyncio.create_task(self.ttl_tick_loop())
 
             if fake_mode:
-                tasks.append(asyncio.create_task(self.fake_data_loop()))
+                asyncio.create_task(self.fake_data_loop())
             else:
                 logger.info("Fake mode disabled — waiting for real RTL-SDR")
 
