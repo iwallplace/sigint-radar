@@ -1,0 +1,91 @@
+rtlsdr:
+  device_index: 0
+  sample_rate: 2400000
+  gain: 40
+  bias_tee: false
+  ppm_correction: 0
+
+station:
+  lat: 0.0
+  lon: 0.0
+  name: ""
+  altitude_m: 0
+  location_source: config
+
+region:
+  profile: auto
+
+scanner:
+  enabled: true
+  fake_mode: false
+  cycle_delay_ms: 500
+  fft_size: 2048
+  fft_averages: 16
+  signal_threshold_db: 10
+
+bands:
+  fm_broadcast: {enabled: true, priority: low}
+  aviation: {enabled: true, priority: high}
+  ism_433: {enabled: true, priority: high, decoder: rtl_433}
+  ism_868: {enabled: true, priority: high, decoder: rtl_433}
+  ism_915: {enabled: false, priority: high, decoder: rtl_433}
+  adsb: {enabled: true, priority: high, decoder: readsb}
+  tetra: {enabled: true, priority: medium}
+  p25: {enabled: false, priority: medium}
+  weather_sat: {enabled: true, priority: medium, decoder: satdump}
+  radiosonde: {enabled: true, priority: medium}
+  marine: {enabled: true, priority: low}
+  pager: {enabled: true, priority: medium, decoder: multimon-ng}
+  pmr446: {enabled: true, priority: low}
+  frs_gmrs: {enabled: false, priority: low}
+  amateur_2m: {enabled: true, priority: low}
+  amateur_70cm: {enabled: true, priority: low}
+  gsm900: {enabled: true, priority: low}
+  lband_sat: {enabled: false, priority: low}
+
+priority_bands: [ism_433, ism_868]
+
+aircraft:
+  source: api
+  api_url: "https://opensky-network.org/api/states/all"
+  api_refresh_seconds: 10
+  api_radius_km: 200
+
+decoders:
+  rtl_433: {output_format: json, protocols: all}
+  readsb: {max_range: 400}
+  multimon_ng: {protocols: [POCSAG512, POCSAG1200, POCSAG2400, FLEX]}
+  satdump: {mode: cli}
+
+websocket:
+  host: 0.0.0.0
+  port: 8765
+
+rest_api:
+  host: 0.0.0.0
+  port: 8080
+
+database:
+  path: /app/data/signals.db
+  retention_days: 30
+
+recording:
+  max_duration_seconds: 60
+  captures_dir: /app/data/captures
+  auto_decode: true
+  max_disk_usage_gb: 10
+  keep_raw_after_decode: true
+
+alerts:
+  weirdness_threshold: 40
+  sound: true
+  desktop_notification: true
+
+ui:
+  theme: dark
+  language: en
+  radar_range_km: 200
+  waterfall_history_seconds: 60
+  globe_visible: true
+
+setup_complete: false

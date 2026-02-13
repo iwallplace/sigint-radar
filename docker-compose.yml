@@ -1,0 +1,41 @@
+version: "3.9"
+
+services:
+  backend:
+    container_name: sigint-backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "${BACKEND_PORT:-8765}:8765"
+      - "${REST_PORT:-8080}:8080"
+    volumes:
+      - ./data:/app/data
+      - ./config.yaml:/app/config.yaml:ro
+    privileged: true
+    devices:
+      - /dev/bus/usb:/dev/bus/usb
+    environment:
+      - TZ=${TZ:-UTC}
+    networks:
+      - sigint-net
+    restart: unless-stopped
+
+  frontend:
+    container_name: sigint-frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    environment:
+      - TZ=${TZ:-UTC}
+    networks:
+      - sigint-net
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+networks:
+  sigint-net:
+    driver: bridge

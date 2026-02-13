@@ -1,0 +1,9 @@
+pyrtlsdr
+numpy
+scipy
+websockets
+aiohttp
+sqlalchemy
+pyyaml
+requests
+reverse_geocode
