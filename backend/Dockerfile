@@ -70,17 +70,29 @@ RUN git clone --depth 1 https://github.com/wb2osz/direwolf.git /tmp/direwolf && 
     make install && \
     rm -rf /tmp/direwolf
 
-# Install SatDump latest release .deb
-RUN ARCH=$(dpkg --print-architecture) && \
-    SATDUMP_URL=$(curl -s https://api.github.com/repos/SatDump/SatDump/releases/latest | \
-    grep "browser_download_url.*${ARCH}.*\.deb" | head -1 | cut -d '"' -f 4) && \
-    if [ -n "$SATDUMP_URL" ]; then \
-        wget -q -O /tmp/satdump.deb "$SATDUMP_URL" && \
-        dpkg -i /tmp/satdump.deb || apt-get install -f -y && \
-        rm -f /tmp/satdump.deb; \
-    else \
-        echo "SatDump .deb not found for $ARCH, skipping"; \
-    fi
+# Build SatDump from source (headless CLI only)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libcurl4-openssl-dev \
+    libjpeg-dev \
+    libpng-dev \
+    libtiff-dev \
+    libnng-dev \
+    libjemalloc-dev \
+    libvolk2-dev \
+    && rm -rf /var/lib/apt/lists/* && \
+    git clone --depth 1 https://github.com/SatDump/SatDump.git /tmp/satdump && \
+    cd /tmp/satdump && \
+    mkdir build && cd build && \
+    cmake .. \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DBUILD_GUI=OFF \
+        -DBUILD_OPENCL=OFF \
+        -DBUILD_OPENMP=ON \
+        && \
+    make -j$(nproc) && \
+    make install && \
+    ldconfig && \
+    rm -rf /tmp/satdump
 
 WORKDIR /app
 
