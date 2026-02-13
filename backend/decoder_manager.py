@@ -9,14 +9,16 @@ from datetime import datetime
 from decode_normalizer import (
     normalize_rtl433,
     normalize_multimon,
+    normalize_fm_rds,
     make_decode_summary,
     MODEL_CATEGORY,
 )
 
 logger = logging.getLogger("sigint-radar")
 
-# Frequency → decoder mapping from CLAUDE.md
+# Frequency → decoder mapping
 DECODER_RANGES = [
+    (88e6, 108e6, "rtl_fm"),
     (432e6, 435e6, "rtl_433"),
     (866e6, 870e6, "rtl_433"),
     (912e6, 918e6, "rtl_433"),
@@ -76,6 +78,16 @@ FAKE_DECODES = [
             "text": f"POCSAG1200: Address: {random.randint(1000000, 9999999)} "
             f"Function: {random.randint(0, 3)} "
             f"Alpha: {random.choice(['Test page', 'Unit dispatch', 'Code 3', 'Maintenance req'])}",
+        },
+    },
+    {
+        "decoder": "rtl_fm",
+        "model": "FM-RDS",
+        "category": "fm_broadcast",
+        "data": lambda: {
+            "station": random.choice(["Power FM", "NTV Radyo", "TRT FM", "Joy FM", "Kral FM", "Best FM", "Virgin Radio"]),
+            "pi": f"{random.randint(0x1000, 0xFFFF):04X}",
+            "freq_mhz": round(random.uniform(88.0, 108.0), 1),
         },
     },
 ]
@@ -245,6 +257,8 @@ class DecoderManager:
                 result = normalize_rtl433([json.dumps(data)])
             elif decoder == "multimon-ng":
                 result = normalize_multimon([data.get("text", "")])
+            elif decoder == "rtl_fm":
+                result = normalize_fm_rds(data, "", freq_hz)
             else:
                 continue
 

@@ -262,7 +262,7 @@ class Database:
 
     def update_decode_result(self, record_id, json_path, result_json,
                              protocol=None, category=None, decoder_used=None,
-                             decode_count=None):
+                             decode_count=None, raw_path=None):
         session = self.Session()
         try:
             rec = session.query(DecodeHistory).get(record_id)
@@ -271,6 +271,8 @@ class Database:
             rec.json_path = json_path
             rec.decode_result = result_json
             rec.re_decoded = True
+            if raw_path:
+                rec.raw_path = raw_path
             if protocol:
                 rec.protocol = protocol
             if category:

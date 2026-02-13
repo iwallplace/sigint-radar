@@ -245,6 +245,38 @@ def normalize_satdump(output_dir, files):
     }
 
 
+def normalize_fm_rds(rds_data, wav_path, freq_hz):
+    """Normalize FM broadcast / RDS decode result."""
+    items = []
+    protocol = "FM-Broadcast"
+
+    data = {
+        "freq_mhz": round(freq_hz / 1e6, 1),
+        "wav_path": wav_path,
+    }
+    if rds_data:
+        data.update(rds_data)
+        if rds_data.get("station"):
+            protocol = "FM-RDS"
+
+    items.append({
+        "timestamp": datetime.utcnow().isoformat(),
+        "type": "fm_audio",
+        "data": data,
+        "raw_text": None,
+    })
+
+    return {
+        "decoder": "rtl_fm",
+        "protocol": protocol,
+        "category": "fm_broadcast",
+        "items": items,
+        "count": 1,
+        "error": None,
+        "wav_path": wav_path,
+    }
+
+
 def make_decode_summary(normalized):
     """Create a short human-readable summary from normalized decode result."""
     if not normalized or not normalized.get("items"):
@@ -288,6 +320,20 @@ def make_decode_summary(normalized):
             return summary
         raw = normalized["items"][-1].get("raw_text", "")
         return f"{protocol}: {raw[:60]}" if raw else protocol
+
+    if decoder == "rtl_fm":
+        data = normalized["items"][-1].get("data", {}) if normalized["items"] else {}
+        station = data.get("station", "")
+        pi = data.get("pi", "")
+        freq = data.get("freq_mhz", "")
+        parts = [protocol]
+        if station:
+            parts.append(f'"{station}"')
+        if pi:
+            parts.append(f"PI:{pi}")
+        if freq:
+            parts.append(f"{freq}MHz")
+        return " ".join(parts)
 
     if decoder == "satdump":
         images = normalized.get("images", [])

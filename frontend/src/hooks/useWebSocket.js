@@ -179,6 +179,8 @@ export default function useWebSocket({ onSignalNew, onSignalUpdate, onSignalRemo
           case "record_deleted":
           case "re_decode_complete":
           case "disk_usage":
+          case "folder_tree":
+          case "record_files":
             // Forward to history panel handler
             if (window.__historyWsHandler) {
               window.__historyWsHandler(data)

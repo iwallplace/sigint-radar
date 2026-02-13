@@ -27,6 +27,8 @@ def create_app(server):
     app.router.add_get("/api/history/{record_id}", handle_history_detail)
     app.router.add_get("/api/history/{record_id}/raw", handle_history_raw)
     app.router.add_get("/api/history/{record_id}/json", handle_history_json)
+    app.router.add_get("/api/history/{record_id}/wav", handle_history_wav)
+    app.router.add_get("/api/folders", handle_folders)
     app.router.add_get("/api/bands", handle_bands)
     app.router.add_get("/api/config", handle_config)
     app.router.add_post("/api/scan/start", handle_scan_start)
@@ -162,6 +164,37 @@ async def handle_history_json(request):
             "Content-Type": "application/json",
         },
     )
+
+
+async def handle_history_wav(request):
+    """Serve WAV audio file for a recording (FM broadcast playback)."""
+    srv = request.app["server"]
+    record_id = int(request.match_info["record_id"])
+    record = srv.db.get_record(record_id)
+    if not record:
+        raise web.HTTPNotFound(text=json.dumps({"error": "record_not_found"}))
+
+    # Find WAV file: same stem as raw file but .wav extension
+    raw_path = record.get("raw_path", "")
+    wav_path = raw_path.rsplit(".", 1)[0] + ".wav" if raw_path else ""
+
+    if not wav_path or not os.path.isfile(wav_path):
+        raise web.HTTPNotFound(text=json.dumps({"error": "wav_file_missing"}))
+
+    return web.FileResponse(
+        wav_path,
+        headers={
+            "Content-Type": "audio/wav",
+            "Content-Disposition": f'inline; filename="record_{record_id}.wav"',
+        },
+    )
+
+
+async def handle_folders(request):
+    """Return protocol folder tree."""
+    from file_organizer import get_folder_tree
+    tree = get_folder_tree()
+    return web.json_response({"folders": tree})
 
 
 async def handle_bands(request):

@@ -13,6 +13,30 @@ const CAT_ICONS = {
   radio: "\uD83D\uDCF6",
 }
 
+const UNDECODED_RANGES = [
+  [88, 108, "FM yayın sinyali — analog ses, RDS decode edilebilir ama kayıt gerekli"],
+  [118, 136, "Havacılık telsizi (VHF-AM) — analog ses, decode edilemez, sadece IQ kaydı"],
+  [136, 174, "VHF amatör/ticari telsiz — analog ses, dijital decode edilemez"],
+  [380, 400, "TETRA dijital telsiz — şifreli, decode edilemez"],
+  [400, 406, "Meteoroloji sonde frekansı — radiosonde decode için kayıt gerekli"],
+  [406, 420, "ISM/telsiz bandı — protokol tanınamadı"],
+  [430, 440, "UHF amatör bandı — karışık modülasyon"],
+  [460, 470, "PMR446 telsiz — analog ses, decode edilemez"],
+  [862, 875, "ISM 868 MHz — sensör verisi olabilir, kayıt + rtl_433 ile denenebilir"],
+  [890, 960, "GSM hücresel — şifreli, decode edilemez"],
+  [1090, 1091, "ADS-B havacılık — readsb ile decode edilir, otomatik taranır"],
+  [1575, 1576, "GPS L1 — navigasyon sinyali, decode edilemez"],
+]
+
+function getUndecodedExplanation(freqHz) {
+  if (!freqHz) return "Sinyal türü tanınamadı — decode edilemez, sadece IQ kaydı yapılabilir"
+  const mhz = freqHz / 1e6
+  for (const [lo, hi, msg] of UNDECODED_RANGES) {
+    if (mhz >= lo && mhz <= hi) return msg
+  }
+  return "Bu sinyal türü analog/şifreli — decode edilemez, sadece IQ kaydı yapılabilir"
+}
+
 function PowerSparkline({ history }) {
   if (!history || history.length < 2) return null
 
@@ -102,12 +126,21 @@ export default function SignalDetail({
             Decoded Data
           </div>
           <div className="space-y-0.5 text-[10px] font-mono">
-            {Object.entries(signal.decode_data).filter(([k]) => !["time", "mic"].includes(k)).slice(0, 10).map(([k, v]) => (
-              <div key={k} className="flex justify-between">
-                <span className="text-green-800">{k}</span>
-                <span className="text-cyan-400">{String(v)}</span>
+            {Object.entries(signal.decode_data).filter(([k]) => !["time", "mic"].includes(k)).slice(0, 12).map(([k, v]) => (
+              <div key={k} className="flex justify-between gap-2">
+                <span className="text-green-800 shrink-0">{k}</span>
+                <span className="text-cyan-400 text-right truncate">{typeof v === "object" ? JSON.stringify(v) : String(v)}</span>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Undecoded signal explanation */}
+      {!signal.decode_data && !signal.decode_summary && signal.protocol === "unknown" && (
+        <div className="px-3 py-2 border-b border-green-900/30">
+          <div className="text-[10px] text-yellow-600/90 leading-snug">
+            {getUndecodedExplanation(signal.freq_hz)}
           </div>
         </div>
       )}

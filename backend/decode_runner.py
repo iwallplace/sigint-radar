@@ -11,6 +11,7 @@ from decode_normalizer import (
     normalize_multimon,
     normalize_readsb,
     normalize_satdump,
+    normalize_fm_rds,
 )
 
 logger = logging.getLogger("sigint-radar")
@@ -28,15 +29,17 @@ def decode_file(raw_path, freq_hz, decoder_override=None):
         (json_path, normalized_result) or (None, error_result)
     """
     decoder = decoder_override or select_decoder(freq_hz)
+
+    # FM broadcast: use rtl_fm decoder for 88-108 MHz
+    freq_mhz = freq_hz / 1e6
+    if not decoder and 88.0 <= freq_mhz <= 108.0:
+        decoder = "rtl_fm"
+    if decoder_override == "rtl_fm":
+        decoder = "rtl_fm"
+
     if not decoder:
-        return None, {
-            "decoder": "none",
-            "protocol": "unknown",
-            "category": "unknown",
-            "items": [],
-            "count": 0,
-            "error": f"No decoder for frequency {freq_hz / 1e6:.3f} MHz",
-        }
+        # Provide meaningful message for undecoded signals
+        return None, _undecoded_result(freq_hz)
 
     json_path = raw_path.rsplit(".", 1)[0] + ".json"
 
@@ -49,6 +52,8 @@ def decode_file(raw_path, freq_hz, decoder_override=None):
             return _decode_readsb(raw_path, json_path)
         elif decoder == "satdump":
             return _decode_satdump(raw_path, freq_hz, json_path)
+        elif decoder == "rtl_fm":
+            return _decode_fm(raw_path, freq_hz, json_path)
         else:
             return None, {
                 "decoder": decoder,
@@ -68,6 +73,39 @@ def decode_file(raw_path, freq_hz, decoder_override=None):
             "count": 0,
             "error": str(e),
         }
+
+
+def _undecoded_result(freq_hz):
+    """Generate a descriptive result for signals that can't be decoded."""
+    freq_mhz = freq_hz / 1e6
+
+    # Provide explanation based on frequency range
+    explanations = [
+        (118, 136, "Havacilik telsizi — analog ses, decode edilemez, sadece IQ kaydı"),
+        (144, 148, "Amator 2m telsiz — analog ses, decode edilemez"),
+        (156, 162, "Denizcilik VHF — analog ses, decode edilemez"),
+        (380, 400, "TETRA dijital telsiz — sifreli, decode edilemez"),
+        (410, 430, "TETRA ozel telsiz — sifreli, decode edilemez"),
+        (430, 440, "Amator 70cm telsiz — analog/dijital, decode edilemez"),
+        (446, 446.2, "PMR446 lisanssiz telsiz — analog ses, decode edilemez"),
+        (935, 960, "GSM 900 downlink — sifreli, decode edilemez"),
+        (1525, 1559, "L-Band uydu — ozel protokol, decode edilemez"),
+    ]
+
+    desc = "Bu sinyal turune uygun decoder bulunamadi — sadece IQ kaydı yapilabilir"
+    for low, high, explanation in explanations:
+        if low <= freq_mhz <= high:
+            desc = explanation
+            break
+
+    return {
+        "decoder": "none",
+        "protocol": "unknown",
+        "category": "unknown",
+        "items": [],
+        "count": 0,
+        "error": desc,
+    }
 
 
 def _decode_rtl433(raw_path, freq_hz, json_path):
@@ -118,12 +156,7 @@ def _decode_multimon(raw_path, freq_hz, json_path):
     with open(json_path, "w") as f:
         json.dump(normalized, f, indent=2)
 
-    # Clean up temporary WAV file
-    try:
-        if os.path.exists(wav_path):
-            os.remove(wav_path)
-    except OSError:
-        pass
+    # Keep the WAV file for audio playback in History tab
 
     return json_path, normalized
 
@@ -190,6 +223,87 @@ def _decode_satdump(raw_path, freq_hz, json_path):
     normalized["protocol"] = protocol
     if images:
         normalized["images"] = [f"{output_dir}/{img}" for img in images]
+
+    with open(json_path, "w") as f:
+        json.dump(normalized, f, indent=2)
+
+    return json_path, normalized
+
+
+def _decode_fm(raw_path, freq_hz, json_path):
+    """Decode FM broadcast IQ file -> WAV audio + RDS data.
+
+    Pipeline:
+      1. sox converts raw IQ (uint8, 2ch, 2.4MSps) to mono WAV (48kHz audio)
+      2. redsea attempts RDS decode from the WAV for station name/PI code
+    """
+    wav_path = raw_path.rsplit(".", 1)[0] + ".wav"
+
+    # Step 1: FM demodulate IQ to audio WAV using sox
+    sox_cmd = (
+        f"sox -t raw -r 2400000 -e unsigned-integer -b 8 -c 2 '{raw_path}' "
+        f"-t wav -r 48000 -e signed-integer -b 16 -c 1 '{wav_path}' "
+        f"sinc 15-15000 2>/dev/null"
+    )
+    subprocess.run(sox_cmd, shell=True, timeout=60)
+
+    rds_data = {}
+    protocol = "FM-Broadcast"
+
+    # Step 2: Try RDS decode with redsea if available
+    try:
+        rds_cmd = (
+            f"sox '{wav_path}' -t raw -r 171000 -e signed-integer -b 16 -c 1 - 2>/dev/null | "
+            f"redsea --feed-through 2>/dev/null"
+        )
+        result = subprocess.run(
+            rds_cmd, shell=True, capture_output=True, text=True, timeout=30
+        )
+        if result.stdout.strip():
+            for line in result.stdout.strip().split("\n"):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rds = json.loads(line)
+                    if "ps" in rds:
+                        rds_data["station"] = rds["ps"].strip()
+                    if "pi" in rds:
+                        rds_data["pi"] = rds["pi"]
+                    if "radiotext" in rds:
+                        rds_data["radiotext"] = rds["radiotext"].strip()
+                    if "pty" in rds:
+                        rds_data["pty"] = rds["pty"]
+                    if rds_data.get("station"):
+                        protocol = "FM-RDS"
+                except json.JSONDecodeError:
+                    continue
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        logger.debug("redsea not available or timed out, skipping RDS decode")
+
+    # If redsea not available, try rtl_433 for RDS
+    if not rds_data:
+        try:
+            cmd = [
+                "rtl_433", "-r", raw_path,
+                "-s", "2400000",
+                "-f", str(int(freq_hz)),
+                "-F", "json",
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            if result.stdout.strip():
+                for line in result.stdout.strip().split("\n"):
+                    try:
+                        d = json.loads(line.strip())
+                        if d.get("model"):
+                            rds_data["model"] = d["model"]
+                    except json.JSONDecodeError:
+                        continue
+        except Exception:
+            pass
+
+    normalized = normalize_fm_rds(rds_data, wav_path, freq_hz)
+    normalized["protocol"] = protocol
 
     with open(json_path, "w") as f:
         json.dump(normalized, f, indent=2)

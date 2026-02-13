@@ -8,6 +8,8 @@ from datetime import datetime
 
 import numpy as np
 
+from file_organizer import create_capture_path
+
 logger = logging.getLogger("sigint-radar")
 
 CAPTURE_DIR = "/app/data/captures"
@@ -22,7 +24,8 @@ class SignalRecorder:
         self._last_record = None
         self.fake_mode = self.config.get("scanner", {}).get("fake_mode", True)
 
-    async def start_recording(self, freq_hz, sample_rate, duration_seconds, gain=40):
+    async def start_recording(self, freq_hz, sample_rate, duration_seconds, gain=40,
+                               protocol_hint="unknown"):
         """Async generator: record IQ to file, yield progress events.
 
         Yields:
@@ -30,9 +33,8 @@ class SignalRecorder:
         """
         os.makedirs(CAPTURE_DIR, exist_ok=True)
 
-        ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        filename = f"{ts}_{freq_hz / 1e6:.3f}MHz.raw"
-        raw_path = os.path.join(CAPTURE_DIR, filename)
+        # Use protocol-based folder structure
+        raw_path = create_capture_path(freq_hz, protocol_hint)
 
         self._recording = True
         self._last_record = None

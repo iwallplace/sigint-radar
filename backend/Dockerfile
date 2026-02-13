@@ -94,6 +94,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ldconfig && \
     rm -rf /tmp/satdump
 
+# Build redsea (RDS decoder) from source
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libliquid-dev nlohmann-json3-dev \
+    && rm -rf /var/lib/apt/lists/* && \
+    git clone --depth 1 https://github.com/windytan/redsea.git /tmp/redsea && \
+    cd /tmp/redsea && \
+    mkdir build && cd build && \
+    cmake .. && \
+    make -j$(nproc) && \
+    make install && \
+    rm -rf /tmp/redsea || \
+    echo "redsea build failed — RDS decode will be unavailable"
+
 WORKDIR /app
 
 # Python dependencies

@@ -15,6 +15,7 @@ from recorder import SignalRecorder
 from decode_runner import decode_file
 from rest_api import start_rest_api
 from aircraft_tracker import AircraftTracker
+from file_organizer import organize_capture, get_folder_tree, migrate_existing_captures
 
 logging.basicConfig(
     level=logging.INFO,
@@ -125,6 +126,8 @@ class SignalServer:
             "get_rtlsdr_status": self._handle_rtlsdr_status,
             "replay_start": self._handle_replay_start,
             "replay_stop": self._handle_replay_stop,
+            "get_folder_tree": self._handle_get_folder_tree,
+            "get_record_files": self._handle_get_record_files,
         }
 
         handler = handlers.get(action)
@@ -240,9 +243,16 @@ class SignalServer:
         max_disk = self.config.get("recording", {}).get("max_disk_usage_gb", 10)
         self.db.auto_cleanup(max_disk)
 
+        # Use protocol hint from signal info for initial folder placement
+        protocol_hint = signal_info.get("protocol", "unknown")
+        if not protocol_hint or protocol_hint == "unknown":
+            from decode_normalizer import guess_protocol_by_freq
+            protocol_hint = guess_protocol_by_freq(freq_hz) or "unknown"
+
         try:
             async for progress in self.recorder.start_recording(
-                freq_hz, sample_rate, duration, gain
+                freq_hz, sample_rate, duration, gain,
+                protocol_hint=protocol_hint,
             ):
                 await self.broadcast(progress)
 
@@ -257,6 +267,13 @@ class SignalServer:
                 category = decode_result.get("category", "unknown")
                 decoder_used = decode_result.get("decoder", "none")
                 summary = decode_result.get("_summary", "")
+
+                # Organize files into correct protocol folder
+                new_paths = organize_capture(raw_path, protocol, freq_hz)
+                if new_paths.get("raw"):
+                    raw_path = new_paths["raw"]
+                if new_paths.get("json"):
+                    json_path = new_paths["json"]
 
                 record_id = self.db.add_decode_record(
                     freq_hz=freq_hz,
@@ -437,6 +454,15 @@ class SignalServer:
                 return
 
             json_path, decode_result = decode_file(raw_path, freq_hz, decoder_override)
+
+            # Move files to correct protocol folder after re-decode
+            new_protocol = decode_result.get("protocol", "unknown")
+            new_paths = organize_capture(raw_path, new_protocol, freq_hz)
+            if new_paths.get("raw"):
+                raw_path = new_paths["raw"]
+            if new_paths.get("json"):
+                json_path = new_paths["json"]
+
             self.db.update_decode_result(
                 record_id,
                 json_path=json_path,
@@ -445,6 +471,7 @@ class SignalServer:
                 category=decode_result.get("category"),
                 decoder_used=decode_result.get("decoder"),
                 decode_count=decode_result.get("count", 0),
+                raw_path=raw_path,
             )
             updated = self.db.get_record(record_id)
             await ws.send(json.dumps({
@@ -607,6 +634,39 @@ class SignalServer:
             }))
         except Exception as e:
             logger.error("Error getting disk usage: %s", e)
+
+    async def _handle_get_folder_tree(self, data, ws):
+        """Return protocol folder tree for History tab."""
+        try:
+            tree = get_folder_tree()
+            await ws.send(json.dumps({
+                "type": "folder_tree",
+                "folders": tree,
+            }))
+        except Exception as e:
+            logger.error("Error getting folder tree: %s", e)
+            await ws.send(json.dumps({
+                "type": "error", "action": "get_folder_tree", "message": str(e),
+            }))
+
+    async def _handle_get_record_files(self, data, ws):
+        """Return all associated files for a record."""
+        from file_organizer import get_associated_files
+        try:
+            record_id = data.get("record_id")
+            if not record_id:
+                return
+            record = self.db.get_record(record_id)
+            if not record:
+                return
+            files = get_associated_files(record.get("raw_path"))
+            await ws.send(json.dumps({
+                "type": "record_files",
+                "record_id": record_id,
+                "files": files,
+            }))
+        except Exception as e:
+            logger.error("Error getting record files: %s", e)
 
     async def _handle_replay_start(self, data, ws):
         """Replay a recorded IQ file through the scan pipeline."""
@@ -945,6 +1005,9 @@ class SignalServer:
 
         logger.info("SIGINT RADAR backend starting on ws://%s:%d", ws_host, ws_port)
         logger.info("Scan engine: fake_mode=%s, region=%s", fake_mode, self.scan_engine.region)
+
+        # Migrate existing flat captures to protocol folders
+        migrate_existing_captures()
 
         # Start REST API server
         await start_rest_api(self)
