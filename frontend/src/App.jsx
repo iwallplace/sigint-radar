@@ -39,6 +39,7 @@ export default function App() {
     scanStop,
     recordStart,
     recordStop,
+    clearRecordResult,
     setupComplete,
     serverLanguage,
     serverConfig,
@@ -59,6 +60,20 @@ export default function App() {
       setLang(serverLanguage)
     }
   }, [serverLanguage, setLang])
+
+  // Clear record result when selected signal changes
+  useEffect(() => {
+    clearRecordResult()
+  }, [selectedId, clearRecordResult])
+
+  // Auto-dismiss record result after 5 seconds
+  useEffect(() => {
+    if (!recordResult) return
+    const timer = setTimeout(() => {
+      clearRecordResult()
+    }, 5000)
+    return () => clearTimeout(timer)
+  }, [recordResult, clearRecordResult])
 
   // Filter signals by category (must be before early returns — React hooks rule)
   const filteredSignals = useMemo(() => {
@@ -272,6 +287,7 @@ export default function App() {
                 recordResult={recordResult}
                 onRecordStart={recordStart}
                 onRecordStop={recordStop}
+                onClearRecord={clearRecordResult}
                 onClose={() => setSelectedId(null)}
               />
             </div>

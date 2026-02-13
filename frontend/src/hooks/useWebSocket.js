@@ -258,6 +258,10 @@ export default function useWebSocket({ onSignalNew, onSignalUpdate, onSignalRemo
     sendMessage("record_stop")
   }, [sendMessage])
 
+  const clearRecordResult = useCallback(() => {
+    setRecordResult(null)
+  }, [])
+
   return {
     connected,
     rtlsdrConnected,
@@ -275,6 +279,7 @@ export default function useWebSocket({ onSignalNew, onSignalUpdate, onSignalRemo
     scanStop,
     recordStart,
     recordStop,
+    clearRecordResult,
     setupComplete,
     serverLanguage,
     serverConfig,

@@ -50,6 +50,7 @@ export default function SignalDetail({
   recordResult,
   onRecordStart,
   onRecordStop,
+  onClearRecord,
   onClose,
 }) {
   const [duration, setDuration] = useState(15)
@@ -135,6 +136,7 @@ export default function SignalDetail({
           progress={recordProgress}
           recordResult={recordResult}
           onStop={onRecordStop}
+          onDismiss={onClearRecord}
         />
       </div>
     </div>
