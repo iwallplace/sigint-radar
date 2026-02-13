@@ -4,11 +4,13 @@ import RadarScreen from "./components/RadarScreen";
 import SignalList from "./components/SignalList";
 import BandCatalog from "./components/BandCatalog";
 import DecodePanel from "./components/DecodePanel";
+import SignalDetail from "./components/SignalDetail";
 
 export default function App() {
   const {
     signalList,
     selectedId,
+    selectedSignal,
     setSelectedId,
     addSignal,
     updateSignal,
@@ -22,8 +24,13 @@ export default function App() {
     bandStatus,
     scanning,
     decodeLines,
+    recording,
+    recordProgress,
+    recordResult,
     scanStart,
     scanStop,
+    recordStart,
+    recordStop,
   } = useWebSocket({
     onSignalNew: addSignal,
     onSignalUpdate: updateSignal,
@@ -72,6 +79,12 @@ export default function App() {
                 SDR: {rtlsdrConnected ? "on" : "no"}
               </span>
             </div>
+            {recording && (
+              <div className="flex items-center gap-1.5">
+                <span className="inline-block w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                <span className="text-red-400">REC</span>
+              </div>
+            )}
             <span className="text-gray-600">
               {signalList.length} signals
             </span>
@@ -79,28 +92,43 @@ export default function App() {
         </div>
 
         {/* Radar + Signal list */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          <div className="flex justify-center">
-            <div className="w-full max-w-lg">
-              <RadarScreen
+        <div className="flex-1 flex overflow-hidden">
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            <div className="flex justify-center">
+              <div className="w-full max-w-lg">
+                <RadarScreen
+                  signals={signalList}
+                  selectedId={selectedId}
+                  onSelect={setSelectedId}
+                />
+              </div>
+            </div>
+
+            <div className="w-full">
+              <SignalList
                 signals={signalList}
                 selectedId={selectedId}
                 onSelect={setSelectedId}
               />
             </div>
+
+            <div className="w-full">
+              <DecodePanel decodeLines={decodeLines} />
+            </div>
           </div>
 
-          <div className="w-full">
-            <SignalList
-              signals={signalList}
-              selectedId={selectedId}
-              onSelect={setSelectedId}
+          {/* Right panel — Signal Detail */}
+          {selectedSignal && (
+            <SignalDetail
+              signal={selectedSignal}
+              recording={recording}
+              recordProgress={recordProgress}
+              recordResult={recordResult}
+              onRecordStart={recordStart}
+              onRecordStop={recordStop}
+              onClose={() => setSelectedId(null)}
             />
-          </div>
-
-          <div className="w-full">
-            <DecodePanel decodeLines={decodeLines} />
-          </div>
+          )}
         </div>
       </div>
     </div>

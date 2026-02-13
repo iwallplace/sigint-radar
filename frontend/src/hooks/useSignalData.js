@@ -1,8 +1,9 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 
 export default function useSignalData() {
   const [signals, setSignals] = useState({});
   const [selectedId, setSelectedId] = useState(null);
+  const [selectedSnapshot, setSelectedSnapshot] = useState(null);
 
   const addSignal = useCallback((signal) => {
     setSignals((prev) => ({ ...prev, [signal.id]: signal }));
@@ -22,18 +23,36 @@ export default function useSignalData() {
       delete next[signalId];
       return next;
     });
-    setSelectedId((prev) => (prev === signalId ? null : prev));
+    // Don't clear selectedId — snapshot keeps panel open
   }, []);
+
+  // Update snapshot whenever the live signal changes
+  useEffect(() => {
+    if (selectedId && signals[selectedId]) {
+      setSelectedSnapshot(signals[selectedId]);
+    }
+  }, [selectedId, signals]);
 
   const signalList = Object.values(signals).sort(
     (a, b) => (b.weirdness_score || 0) - (a.weirdness_score || 0)
   );
 
+  // Live signal or snapshot fallback
+  const selectedSignal = (selectedId && signals[selectedId]) || selectedSnapshot;
+
+  const selectSignal = useCallback((id) => {
+    if (id === null) {
+      setSelectedSnapshot(null);
+    }
+    setSelectedId(id);
+  }, []);
+
   return {
     signals,
     signalList,
     selectedId,
-    setSelectedId,
+    selectedSignal,
+    setSelectedId: selectSignal,
     addSignal,
     updateSignal,
     removeSignal,

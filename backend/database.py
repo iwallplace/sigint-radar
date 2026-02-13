@@ -108,3 +108,28 @@ class Database:
             return None
         finally:
             session.close()
+
+    def get_record(self, record_id):
+        session = self.Session()
+        try:
+            rec = session.query(DecodeHistory).get(record_id)
+            if not rec:
+                return None
+            return {
+                "id": rec.id,
+                "timestamp": rec.timestamp.isoformat() if rec.timestamp else None,
+                "freq_hz": rec.freq_hz,
+                "band_name": rec.band_name,
+                "protocol": rec.protocol,
+                "category": rec.category,
+                "decoder_used": rec.decoder_used,
+                "duration_seconds": rec.duration_seconds,
+                "file_size_bytes": rec.file_size_bytes,
+                "raw_path": rec.raw_path,
+                "json_path": rec.json_path,
+                "decode_count": rec.decode_count,
+                "power_db": rec.power_db,
+                "weirdness_score": rec.weirdness_score,
+            }
+        finally:
+            session.close()

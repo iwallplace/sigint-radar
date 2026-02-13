@@ -14,6 +14,9 @@ export default function useWebSocket({ onSignalNew, onSignalUpdate, onSignalRemo
   const [bandStatus, setBandStatus] = useState({});
   const [scanning, setScanning] = useState(false);
   const [decodeLines, setDecodeLines] = useState([]);
+  const [recording, setRecording] = useState(false);
+  const [recordProgress, setRecordProgress] = useState(null);
+  const [recordResult, setRecordResult] = useState(null);
 
   const wsRef = useRef(null);
   const backoffRef = useRef(1000);
@@ -91,6 +94,45 @@ export default function useWebSocket({ onSignalNew, onSignalUpdate, onSignalRemo
             });
             break;
 
+          case "record_started":
+            setRecording(true);
+            setRecordProgress(null);
+            setRecordResult(null);
+            break;
+
+          case "record_progress":
+            setRecordProgress({
+              elapsed_seconds: data.elapsed_seconds,
+              file_size_mb: data.file_size_mb,
+              max_seconds: data.max_seconds,
+            });
+            break;
+
+          case "record_complete":
+            setRecording(false);
+            setRecordProgress(null);
+            setRecordResult({
+              record_id: data.record_id,
+              decode_count: data.decode_count,
+              protocol: data.protocol,
+              category: data.category,
+              decoder_used: data.decoder_used,
+              duration_seconds: data.duration_seconds,
+              file_size_bytes: data.file_size_bytes,
+              summary: data.summary,
+            });
+            break;
+
+          case "record_error":
+            setRecording(false);
+            setRecordProgress(null);
+            console.error("[WS] Record error:", data.error);
+            break;
+
+          case "scan_resumed":
+            setScanning(true);
+            break;
+
           case "scan_band_active":
             break;
 
@@ -162,6 +204,24 @@ export default function useWebSocket({ onSignalNew, onSignalUpdate, onSignalRemo
     sendMessage("scan_stop");
   }, [sendMessage]);
 
+  const recordStart = useCallback((signal, duration) => {
+    setRecordResult(null);
+    sendMessage("record_start", {
+      freq_hz: signal.freq_hz,
+      duration,
+      signal: {
+        band_name: signal.band_name,
+        power_db: signal.power_db,
+        estimated_distance_km: signal.estimated_distance_km,
+        weirdness_score: signal.weirdness_score,
+      },
+    });
+  }, [sendMessage]);
+
+  const recordStop = useCallback(() => {
+    sendMessage("record_stop");
+  }, [sendMessage]);
+
   return {
     connected,
     rtlsdrConnected,
@@ -171,8 +231,13 @@ export default function useWebSocket({ onSignalNew, onSignalUpdate, onSignalRemo
     bandStatus,
     scanning,
     decodeLines,
+    recording,
+    recordProgress,
+    recordResult,
     sendMessage,
     scanStart,
     scanStop,
+    recordStart,
+    recordStop,
   };
 }

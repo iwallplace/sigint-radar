@@ -8,6 +8,8 @@ from config import load_config
 from database import Database
 from signal_cluster import SignalCluster
 from scan_engine import ScanEngine
+from recorder import SignalRecorder
+from decode_runner import decode_file
 
 logging.basicConfig(
     level=logging.INFO,
@@ -31,6 +33,10 @@ class SignalServer:
         self.scanning = False
         self.active_band = None
         self.band_status = {}  # name -> "idle"|"scanning"|"found"|"empty"|"error"
+
+        self.recorder = SignalRecorder(config=self.config)
+        self.recording = False
+        self._pre_record_bands = None  # bands to resume after recording
 
         # Initialize band statuses
         for band in self.scan_engine.get_bands_info():
@@ -79,8 +85,8 @@ class SignalServer:
             "scan_start": self._handle_scan_start,
             "scan_stop": self._handle_scan_stop,
             "get_bands": self._handle_get_bands,
-            "record_start": self._handle_not_implemented,
-            "record_stop": self._handle_not_implemented,
+            "record_start": self._handle_record_start,
+            "record_stop": self._handle_record_stop,
             "get_decode_history": self._handle_not_implemented,
             "re_decode": self._handle_not_implemented,
             "toggle_star": self._handle_not_implemented,
@@ -158,6 +164,123 @@ class SignalServer:
         self.scanning = False
         self.active_band = None
         await self.broadcast({"type": "scan_stopped"})
+
+    async def _handle_record_start(self, data, ws):
+        freq_hz = data.get("freq_hz")
+        duration = data.get("duration", 15)
+        signal_info = data.get("signal", {})
+
+        if not freq_hz:
+            await ws.send(json.dumps({
+                "type": "error",
+                "action": "record_start",
+                "message": "no_frequency",
+            }))
+            return
+
+        # Stop scanning, remember bands for resume
+        self._pre_record_bands = None
+        if self.scanning and self.scan_task and not self.scan_task.done():
+            self._pre_record_bands = list(self.scan_engine.all_bands.keys())
+            self.scan_engine.stop()
+            self.scan_task.cancel()
+            try:
+                await self.scan_task
+            except (asyncio.CancelledError, Exception):
+                pass
+            self.scanning = False
+            await self.broadcast({"type": "scan_stopped"})
+
+        self.recording = True
+        await self.broadcast({
+            "type": "record_started",
+            "freq_hz": freq_hz,
+            "duration": duration,
+        })
+
+        # Run recording pipeline as a background task (non-blocking)
+        asyncio.create_task(
+            self._run_record_pipeline(freq_hz, duration, signal_info)
+        )
+
+    async def _run_record_pipeline(self, freq_hz, duration, signal_info):
+        """Background task: record IQ, decode, save to DB, resume scan."""
+        sample_rate = self.config.get("rtlsdr", {}).get("sample_rate", 2400000)
+        gain = self.config.get("rtlsdr", {}).get("gain", 40)
+
+        try:
+            async for progress in self.recorder.start_recording(
+                freq_hz, sample_rate, duration, gain
+            ):
+                await self.broadcast(progress)
+
+            # Recording done — auto decode
+            record = self.recorder.get_last_record()
+            if record:
+                raw_path = record["raw_path"]
+                json_path, decode_result = decode_file(raw_path, freq_hz)
+
+                decode_count = decode_result.get("count", 0)
+                protocol = decode_result.get("protocol", "unknown")
+                category = decode_result.get("category", "unknown")
+                decoder_used = decode_result.get("decoder", "none")
+                summary = decode_result.get("_summary", "")
+
+                record_id = self.db.add_decode_record(
+                    freq_hz=freq_hz,
+                    freq_label=f"{freq_hz / 1e6:.3f} MHz",
+                    band_name=signal_info.get("band_name", ""),
+                    protocol=protocol,
+                    category=category,
+                    decoder_used=decoder_used,
+                    duration_seconds=record.get("duration_seconds", 0),
+                    file_size_bytes=record.get("file_size_bytes", 0),
+                    raw_path=raw_path,
+                    json_path=json_path,
+                    decode_result=json.dumps(decode_result),
+                    decode_count=decode_count,
+                    power_db=signal_info.get("power_db"),
+                    estimated_distance_km=signal_info.get("estimated_distance_km"),
+                    weirdness_score=signal_info.get("weirdness_score"),
+                )
+
+                await self.broadcast({
+                    "type": "record_complete",
+                    "record_id": record_id,
+                    "freq_hz": freq_hz,
+                    "duration_seconds": record.get("duration_seconds", 0),
+                    "file_size_bytes": record.get("file_size_bytes", 0),
+                    "raw_path": raw_path,
+                    "decode_count": decode_count,
+                    "protocol": protocol,
+                    "category": category,
+                    "decoder_used": decoder_used,
+                    "summary": summary,
+                })
+
+        except Exception as e:
+            logger.error("Recording pipeline error: %s", e)
+            await self.broadcast({
+                "type": "record_error",
+                "error": str(e),
+            })
+        finally:
+            self.recording = False
+
+            # Resume scanning if we were scanning before
+            if self._pre_record_bands:
+                bands = self._pre_record_bands
+                self._pre_record_bands = None
+                self.scanning = True
+                self.scan_engine = ScanEngine(
+                    config=self.config, cluster=self.cluster
+                )
+                self.scan_task = asyncio.create_task(self._run_scan(bands))
+                await self.broadcast({"type": "scan_resumed"})
+
+    async def _handle_record_stop(self, data, ws):
+        if self.recording:
+            self.recorder.stop_recording()
 
     async def _run_scan(self, band_names):
         """Run scan engine and broadcast events."""
