@@ -4,6 +4,9 @@ rtlsdr:
   gain: 40
   bias_tee: false
   ppm_correction: 0
+  source: rtl_tcp          # "usb" for direct USB (Linux), "rtl_tcp" for network (macOS/remote)
+  rtl_tcp_host: host.docker.internal
+  rtl_tcp_port: 1234
 
 station:
   lat: 0.0

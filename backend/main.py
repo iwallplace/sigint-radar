@@ -234,31 +234,66 @@ class SignalServer:
         self.clients -= dead
 
     async def check_rtlsdr(self):
+        rtlsdr_cfg = self.config.get("rtlsdr", {})
+        source = rtlsdr_cfg.get("source", "usb")
+
         while True:
-            try:
-                from rtlsdr import RtlSdr
-                sdr = RtlSdr()
-                sdr.close()
-                was_connected = self.rtlsdr_connected
-                self.rtlsdr_connected = True
-                if not was_connected:
-                    logger.info("RTL-SDR device connected")
-                    await self.broadcast({
-                        "type": "rtlsdr_status",
-                        "connected": True,
-                        "message": "connected",
-                    })
-            except Exception:
-                was_connected = self.rtlsdr_connected
-                self.rtlsdr_connected = False
-                if was_connected:
-                    logger.info("RTL-SDR device disconnected")
-                    await self.broadcast({
-                        "type": "rtlsdr_status",
-                        "connected": False,
-                        "message": "no device found",
-                    })
+            ok = False
+            msg = "no device found"
+
+            if source == "rtl_tcp":
+                ok, msg = await self._check_rtl_tcp(rtlsdr_cfg)
+            else:
+                ok, msg = self._check_rtl_usb()
+
+            was_connected = self.rtlsdr_connected
+            self.rtlsdr_connected = ok
+
+            if ok and not was_connected:
+                logger.info("RTL-SDR %s connected: %s", source, msg)
+                await self.broadcast({
+                    "type": "rtlsdr_status",
+                    "connected": True,
+                    "message": msg,
+                })
+            elif not ok and was_connected:
+                logger.info("RTL-SDR %s disconnected: %s", source, msg)
+                await self.broadcast({
+                    "type": "rtlsdr_status",
+                    "connected": False,
+                    "message": msg,
+                })
+
             await asyncio.sleep(5)
+
+    def _check_rtl_usb(self):
+        """Check USB RTL-SDR availability."""
+        try:
+            from rtlsdr import RtlSdr
+            sdr = RtlSdr()
+            sdr.close()
+            return True, "USB connected"
+        except Exception:
+            return False, "no USB device"
+
+    async def _check_rtl_tcp(self, cfg):
+        """Check rtl_tcp server availability."""
+        import socket
+        host = cfg.get("rtl_tcp_host", "host.docker.internal")
+        port = cfg.get("rtl_tcp_port", 1234)
+        loop = asyncio.get_event_loop()
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(3)
+            await loop.run_in_executor(None, sock.connect, (host, port))
+            # Read 12-byte header to confirm it's rtl_tcp
+            header = await loop.run_in_executor(None, sock.recv, 12)
+            sock.close()
+            if len(header) >= 4:
+                return True, f"rtl_tcp@{host}:{port}"
+            return False, f"rtl_tcp@{host}:{port} invalid header"
+        except Exception as e:
+            return False, f"rtl_tcp@{host}:{port} unreachable"
 
     async def ttl_tick_loop(self):
         """Decrement TTL every second and broadcast removals."""

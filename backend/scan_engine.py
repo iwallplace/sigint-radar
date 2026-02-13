@@ -1,8 +1,10 @@
-"""Band scanning engine for RTL-SDR."""
+"""Band scanning engine for RTL-SDR (USB direct or rtl_tcp)."""
 
 import asyncio
 import logging
 import random
+import socket
+import struct
 import time
 
 import numpy as np
@@ -72,6 +74,12 @@ class ScanEngine:
 
         self.running = False
         self._sdr = None
+        self._tcp_sock = None
+
+        rtlsdr_cfg = self.config.get("rtlsdr", {})
+        self.sdr_source = rtlsdr_cfg.get("source", "usb")
+        self.tcp_host = rtlsdr_cfg.get("rtl_tcp_host", "host.docker.internal")
+        self.tcp_port = rtlsdr_cfg.get("rtl_tcp_port", 1234)
 
     def get_bands_info(self):
         """Return band metadata for frontend display."""
@@ -216,10 +224,17 @@ class ScanEngine:
                 logger.error("Error scanning %s at %.3f MHz: %s", name, sweep_freq / 1e6, e)
 
     async def _read_samples(self, center_freq, sample_rate):
-        """Read IQ samples from RTL-SDR or generate fake data."""
+        """Read IQ samples from RTL-SDR (USB or rtl_tcp) or generate fake data."""
         if self.fake_mode:
             return self._generate_fake_iq(center_freq, sample_rate)
 
+        if self.sdr_source == "rtl_tcp":
+            return await self._read_samples_tcp(center_freq, sample_rate)
+        else:
+            return await self._read_samples_usb(center_freq, sample_rate)
+
+    async def _read_samples_usb(self, center_freq, sample_rate):
+        """Read IQ samples via direct USB (pyrtlsdr)."""
         try:
             if self._sdr is None:
                 from rtlsdr import RtlSdr
@@ -237,14 +252,12 @@ class ScanEngine:
             self._sdr.center_freq = center_freq
             self._sdr.sample_rate = sample_rate
 
-            # Small delay for PLL to settle
             await asyncio.sleep(0.05)
-
             samples = self._sdr.read_samples(256 * 1024)
             return samples
 
         except Exception as e:
-            logger.error("RTL-SDR read error: %s", e)
+            logger.error("RTL-SDR USB read error: %s", e)
             if self._sdr:
                 try:
                     self._sdr.close()
@@ -252,6 +265,89 @@ class ScanEngine:
                     pass
                 self._sdr = None
             return None
+
+    async def _read_samples_tcp(self, center_freq, sample_rate):
+        """Read IQ samples via rtl_tcp network protocol."""
+        n_bytes = 256 * 1024 * 2  # I+Q uint8 pairs
+        loop = asyncio.get_event_loop()
+
+        try:
+            if self._tcp_sock is None:
+                self._tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                self._tcp_sock.settimeout(5)
+                await loop.run_in_executor(
+                    None, self._tcp_sock.connect, (self.tcp_host, self.tcp_port)
+                )
+
+                # Read 12-byte dongle info header
+                header = b""
+                while len(header) < 12:
+                    chunk = await loop.run_in_executor(
+                        None, self._tcp_sock.recv, 12 - len(header)
+                    )
+                    if not chunk:
+                        raise ConnectionError("rtl_tcp header read failed")
+                    header += chunk
+
+                logger.info(
+                    "rtl_tcp connected to %s:%d (dongle: %s)",
+                    self.tcp_host,
+                    self.tcp_port,
+                    header[:4].decode("ascii", errors="replace"),
+                )
+
+                # Set gain
+                rtlsdr_cfg = self.config.get("rtlsdr", {})
+                gain = int(rtlsdr_cfg.get("gain", 40) * 10)
+                # cmd 0x04 = set gain mode (manual=1)
+                self._tcp_send_cmd(0x03, 1)
+                # cmd 0x04 = set gain
+                self._tcp_send_cmd(0x04, gain)
+
+            # Set frequency: cmd 0x01
+            self._tcp_send_cmd(0x01, int(center_freq))
+            # Set sample rate: cmd 0x02
+            self._tcp_send_cmd(0x02, int(sample_rate))
+
+            await asyncio.sleep(0.05)
+
+            # Read IQ data
+            buf = bytearray()
+            while len(buf) < n_bytes:
+                remaining = n_bytes - len(buf)
+                chunk = await loop.run_in_executor(
+                    None, self._tcp_sock.recv, min(remaining, 65536)
+                )
+                if not chunk:
+                    raise ConnectionError("rtl_tcp data stream ended")
+                buf.extend(chunk)
+
+            # Convert uint8 IQ to complex float
+            raw = np.frombuffer(buf, dtype=np.uint8)
+            iq = raw.astype(np.float32).view(np.float32)
+            i_data = (iq[0::2] - 127.5) / 127.5
+            q_data = (iq[1::2] - 127.5) / 127.5
+            return i_data + 1j * q_data
+
+        except Exception as e:
+            logger.error("rtl_tcp read error: %s", e)
+            self._close_tcp()
+            return None
+
+    def _tcp_send_cmd(self, cmd, param):
+        """Send a 5-byte command to rtl_tcp (1-byte cmd + 4-byte big-endian param)."""
+        if self._tcp_sock:
+            data = struct.pack(">BI", cmd, param & 0xFFFFFFFF)
+            self._tcp_sock.sendall(data)
+
+    def _close_tcp(self):
+        """Close rtl_tcp socket."""
+        if self._tcp_sock:
+            try:
+                self._tcp_sock.close()
+            except Exception:
+                pass
+            self._tcp_sock = None
 
     def _generate_fake_iq(self, center_freq, sample_rate):
         """Generate synthetic IQ samples with random signals."""
@@ -282,4 +378,5 @@ class ScanEngine:
             except Exception:
                 pass
             self._sdr = None
+        self._close_tcp()
         logger.info("Scan engine stop requested")

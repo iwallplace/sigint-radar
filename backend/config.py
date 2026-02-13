@@ -11,6 +11,9 @@ DEFAULTS = {
         "gain": 40,
         "bias_tee": False,
         "ppm_correction": 0,
+        "source": "usb",
+        "rtl_tcp_host": "host.docker.internal",
+        "rtl_tcp_port": 1234,
     },
     "station": {
         "lat": 0.0,
