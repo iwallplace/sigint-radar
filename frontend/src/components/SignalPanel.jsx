@@ -88,10 +88,31 @@ export default function SignalPanel({ signals = [], selectedId, onSelect }) {
               )}
             </div>
 
-            {/* Row 3: Decode summary + Band */}
+            {/* Row 3: Decoded data (temp, humidity, address, model) */}
+            {sig.decode_data && (
+              <div className="flex items-center gap-2 mt-0.5 text-[10px] text-cyan-600 font-mono">
+                {sig.decode_data.model && (
+                  <span className="text-cyan-400">{sig.decode_data.model}</span>
+                )}
+                {sig.decode_data.temperature_C !== undefined && (
+                  <span>T:{sig.decode_data.temperature_C}&deg;C</span>
+                )}
+                {sig.decode_data.humidity !== undefined && (
+                  <span>H:{sig.decode_data.humidity}%</span>
+                )}
+                {sig.decode_data.address && (
+                  <span>Addr:{sig.decode_data.address}</span>
+                )}
+                {sig.decode_data.wind_avg_km_h !== undefined && (
+                  <span>W:{sig.decode_data.wind_avg_km_h}km/h</span>
+                )}
+              </div>
+            )}
+
+            {/* Row 4: Decode summary + Band desc */}
             <div className="flex items-center justify-between mt-0.5 text-[10px]">
               <span className="text-green-600 truncate flex-1">
-                {sig.decode_summary || sig.band_name || ""}
+                {sig.decode_summary || sig.band_description || sig.band_name || ""}
               </span>
               {sig.count > 1 && (
                 <span className="text-green-800 ml-2">x{sig.count}</span>

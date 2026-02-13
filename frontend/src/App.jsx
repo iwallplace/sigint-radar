@@ -9,6 +9,7 @@ import DecodePanel from "./components/DecodePanel"
 import SignalDetail from "./components/SignalDetail"
 import SetupWizard from "./components/SetupWizard"
 import WeirdnessAlert from "./components/WeirdnessAlert"
+import DecodeHistory from "./components/DecodeHistory"
 
 export default function App() {
   const { t, setLang } = useI18n()
@@ -53,6 +54,7 @@ export default function App() {
 
   const [catalogOpen, setCatalogOpen] = useState(false)
   const [categoryFilter, setCategoryFilter] = useState("all")
+  const [historyOpen, setHistoryOpen] = useState(false)
 
   // Sync language from server
   useEffect(() => {
@@ -167,6 +169,12 @@ export default function App() {
               <span className="text-red-400">REC</span>
             </div>
           )}
+          <button
+            onClick={() => setHistoryOpen(true)}
+            className="text-[10px] px-2 py-0.5 border border-green-900/50 rounded text-green-700 hover:text-green-400 hover:border-green-700 tracking-wider font-bold"
+          >
+            HISTORY
+          </button>
           <span className="text-green-800">
             {signalList.length} {t("app.signals")}
           </span>
@@ -294,6 +302,14 @@ export default function App() {
           )}
         </div>
       </div>
+
+      {/* History overlay */}
+      {historyOpen && (
+        <DecodeHistory
+          sendMessage={sendMessage}
+          onClose={() => setHistoryOpen(false)}
+        />
+      )}
     </div>
   )
 }

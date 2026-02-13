@@ -63,6 +63,14 @@ export default function RecordControl({
   // Not recording
   if (!recording) return null
 
+  // Format seconds to min:sec
+  const fmtTime = (s) => {
+    if (!s && s !== 0) return "..."
+    const m = Math.floor(s / 60)
+    const sec = Math.round(s % 60)
+    return m > 0 ? `${m}m${sec.toString().padStart(2, "0")}s` : `${sec}s`
+  }
+
   // Recording in progress
   return (
     <div className="space-y-2">
@@ -72,7 +80,7 @@ export default function RecordControl({
           <span className="text-red-400">REC</span>
         </div>
         <span className="text-green-700 font-mono">
-          {progress ? `${progress.elapsed_seconds}s / ${progress.max_seconds}s` : "..."}
+          {progress ? `${fmtTime(progress.elapsed_seconds)} / ${fmtTime(progress.max_seconds)}` : "..."}
         </span>
       </div>
 

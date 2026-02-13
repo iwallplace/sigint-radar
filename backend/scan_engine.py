@@ -16,7 +16,7 @@ from distance_estimator import estimate_distance_km
 from weirdness_scorer import calculate_weirdness
 from regions import detect_region, load_bands
 from decoder_manager import DecoderManager, select_decoder
-from decode_normalizer import make_decode_summary
+from decode_normalizer import make_decode_summary, guess_protocol_by_freq
 
 logger = logging.getLogger("sigint-radar")
 
@@ -88,6 +88,10 @@ class ScanEngine:
         """Return band metadata for frontend display."""
         result = []
         for name, band in self.all_bands.items():
+            center = band["center_hz"]
+            bw = band["bandwidth_hz"]
+            low_mhz = (center - bw / 2) / 1e6
+            high_mhz = (center + bw / 2) / 1e6
             result.append({
                 "name": name,
                 "description": band.get("description", name),
@@ -95,8 +99,9 @@ class ScanEngine:
                 "priority": band.get("priority", "low"),
                 "enabled": band.get("enabled", True),
                 "decoder": band.get("decoder"),
-                "center_mhz": band["center_hz"] / 1e6,
-                "bandwidth_mhz": band["bandwidth_hz"] / 1e6,
+                "center_mhz": center / 1e6,
+                "bandwidth_mhz": bw / 1e6,
+                "range_mhz": f"{low_mhz:.1f}-{high_mhz:.1f} MHz",
             })
         return result
 
@@ -226,14 +231,18 @@ class ScanEngine:
                         freq_mhz, peak_power, category=band.get("category", "unknown")
                     )
 
+                    # Initial protocol: use frequency-based guess instead of decoder name
+                    initial_protocol = guess_protocol_by_freq(peak_freq) or band.get("description", "unknown")
+
                     sig = {
                         "freq_hz": peak_freq,
                         "band_name": name,
-                        "protocol": band.get("decoder") or "unknown",
+                        "protocol": initial_protocol,
                         "category": band.get("category", "unknown"),
                         "power_db": peak_power,
                         "snr_db": snr,
                         "estimated_distance_km": distance,
+                        "band_description": band.get("description", ""),
                     }
 
                     # Run live decode if decoder exists for this freq
@@ -243,9 +252,14 @@ class ScanEngine:
                             peak_freq, name
                         ):
                             if decode_result and decode_result.get("count", 0) > 0:
+                                # Real protocol name from decoder (e.g. "Bresser-5in1", "POCSAG1200")
                                 sig["protocol"] = decode_result.get("protocol", sig["protocol"])
                                 sig["category"] = decode_result.get("category", sig["category"])
                                 sig["decode_summary"] = decode_result.get("_summary", "")
+                                # Carry decoded data for frontend display
+                                if decode_result.get("items"):
+                                    last_item = decode_result["items"][-1]
+                                    sig["decode_data"] = last_item.get("data", {})
 
                                 yield {
                                     "type": "decode_line",

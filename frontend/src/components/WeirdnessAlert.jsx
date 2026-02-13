@@ -16,6 +16,15 @@ export default function WeirdnessAlert({ alerts, soundEnabled, desktopEnabled, o
   // Keep refs in sync with latest props (avoids stale closures)
   useEffect(() => {
     soundRef.current = soundEnabled
+    // Suspend audio context when sound is disabled
+    if (!soundEnabled && audioCtxRef.current) {
+      try {
+        audioCtxRef.current.close()
+        audioCtxRef.current = null
+      } catch {
+        // ignore
+      }
+    }
   }, [soundEnabled])
 
   useEffect(() => {
@@ -88,7 +97,11 @@ export default function WeirdnessAlert({ alerts, soundEnabled, desktopEnabled, o
     cooldownRef.current[freqKey] = now
 
     const entry = { ...latest }
-    setVisible((prev) => [...prev, entry])
+    setVisible((prev) => {
+      // Max 3 alerts on screen — remove oldest if at limit
+      const next = [...prev, entry]
+      return next.length > 3 ? next.slice(-3) : next
+    })
 
     // Read from refs for latest prop values (not stale closure)
     if (soundRef.current) playBeep()

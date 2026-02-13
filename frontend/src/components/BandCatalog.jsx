@@ -118,7 +118,7 @@ export default function BandCatalog({
               />
               <span className="text-green-500 truncate flex-1">{band.description}</span>
               <span className="text-green-800 text-[9px] font-mono shrink-0">
-                {band.center_mhz?.toFixed(1)}
+                {band.range_mhz || `${band.center_mhz?.toFixed(1)}`}
               </span>
               <span className="text-green-900 text-[9px] w-8 text-right shrink-0">
                 {status !== "idle" ? status.slice(0, 4) : ""}

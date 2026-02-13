@@ -68,7 +68,7 @@ DEFAULTS = {
     "rest_api": {"host": "0.0.0.0", "port": 8080},
     "database": {"path": "/app/data/signals.db", "retention_days": 30},
     "recording": {
-        "max_duration_seconds": 60,
+        "max_duration_minutes": 300,
         "captures_dir": "/app/data/captures",
         "auto_decode": True,
         "max_disk_usage_gb": 10,

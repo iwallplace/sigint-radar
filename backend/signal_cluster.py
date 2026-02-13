@@ -49,7 +49,7 @@ class SignalCluster:
         for cid, cluster in self._clusters.items():
             if (
                 abs(cluster["freq_hz"] - freq) <= FREQ_TOLERANCE_HZ
-                and cluster["protocol"] == protocol
+                and cluster["band_name"] == sig.get("band_name", "")
             ):
                 cluster["count"] += 1
                 cluster["last_seen"] = time.time()
@@ -61,6 +61,16 @@ class SignalCluster:
                 cluster["weirdness_score"] = sig.get(
                     "weirdness_score", cluster["weirdness_score"]
                 )
+                # Update protocol if a real decode happened (not a guess)
+                if protocol != "unknown" and protocol != cluster.get("protocol"):
+                    cluster["protocol"] = protocol
+                # Update decode fields
+                if sig.get("decode_summary"):
+                    cluster["decode_summary"] = sig["decode_summary"]
+                if sig.get("decode_data"):
+                    cluster["decode_data"] = sig["decode_data"]
+                if sig.get("band_description"):
+                    cluster["band_description"] = sig["band_description"]
                 max_ttl = TTL.get(category, TTL["default"])
                 cluster["ttl"] = max_ttl
                 cluster["max_ttl"] = max_ttl
@@ -82,6 +92,9 @@ class SignalCluster:
             "snr_db": sig.get("snr_db", 0),
             "estimated_distance_km": sig.get("estimated_distance_km", 0),
             "weirdness_score": sig.get("weirdness_score", 0),
+            "decode_summary": sig.get("decode_summary", ""),
+            "decode_data": sig.get("decode_data"),
+            "band_description": sig.get("band_description", ""),
             "count": 1,
             "first_seen": now,
             "last_seen": now,

@@ -53,7 +53,7 @@ export default function SignalDetail({
   onClearRecord,
   onClose,
 }) {
-  const [duration, setDuration] = useState(15)
+  const [durationMin, setDurationMin] = useState(1)
 
   if (!signal) return null
 
@@ -79,6 +79,9 @@ export default function SignalDetail({
       {/* Signal info */}
       <div className="px-3 py-2 space-y-1 text-[11px] border-b border-green-900/30">
         <Row label="BAND" value={signal.band_name} />
+        {signal.band_description && (
+          <Row label="DESC" value={signal.band_description} valueClass="text-green-700" />
+        )}
         <Row label="PROTOCOL" value={signal.protocol} valueClass="text-green-300" />
         <Row label="CATEGORY" value={signal.category} />
         <Row label="POWER" value={`${signal.power_db?.toFixed(1)} dB`} />
@@ -91,6 +94,23 @@ export default function SignalDetail({
           <Row label="DECODE" value={signal.decode_summary} valueClass="text-green-300" />
         )}
       </div>
+
+      {/* Decoded data details */}
+      {signal.decode_data && (
+        <div className="px-3 py-2 border-b border-green-900/30">
+          <div className="text-[9px] text-green-800 uppercase tracking-wider font-bold mb-1">
+            Decoded Data
+          </div>
+          <div className="space-y-0.5 text-[10px] font-mono">
+            {Object.entries(signal.decode_data).filter(([k]) => !["time", "mic"].includes(k)).slice(0, 10).map(([k, v]) => (
+              <div key={k} className="flex justify-between">
+                <span className="text-green-800">{k}</span>
+                <span className="text-cyan-400">{String(v)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Power history */}
       {signal.power_history && signal.power_history.length > 1 && (
@@ -115,15 +135,15 @@ export default function SignalDetail({
               <input
                 type="number"
                 min={1}
-                max={60}
-                value={duration}
-                onChange={(e) => setDuration(Math.max(1, Math.min(60, Number(e.target.value))))}
-                className="w-12 bg-[#060a06] border border-green-900/50 rounded px-1 py-0.5 text-[10px] text-green-400 text-center font-mono"
+                max={300}
+                value={durationMin}
+                onChange={(e) => setDurationMin(Math.max(1, Math.min(300, Number(e.target.value))))}
+                className="w-14 bg-[#060a06] border border-green-900/50 rounded px-1 py-0.5 text-[10px] text-green-400 text-center font-mono"
               />
-              <span className="text-[9px] text-green-800">sec</span>
+              <span className="text-[9px] text-green-800">min</span>
             </div>
             <button
-              onClick={() => onRecordStart(signal, duration)}
+              onClick={() => onRecordStart(signal, durationMin * 60)}
               className="w-full py-1 bg-red-950/60 text-red-400 rounded border border-red-900/50 hover:bg-red-950 text-[10px] font-bold tracking-wider"
             >
               REC START
