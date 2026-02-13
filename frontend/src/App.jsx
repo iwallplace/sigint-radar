@@ -3,6 +3,7 @@ import useSignalData from "./hooks/useSignalData";
 import RadarScreen from "./components/RadarScreen";
 import SignalList from "./components/SignalList";
 import BandCatalog from "./components/BandCatalog";
+import DecodePanel from "./components/DecodePanel";
 
 export default function App() {
   const {
@@ -20,6 +21,7 @@ export default function App() {
     bands,
     bandStatus,
     scanning,
+    decodeLines,
     scanStart,
     scanStop,
   } = useWebSocket({
@@ -94,6 +96,10 @@ export default function App() {
               selectedId={selectedId}
               onSelect={setSelectedId}
             />
+          </div>
+
+          <div className="w-full">
+            <DecodePanel decodeLines={decodeLines} />
           </div>
         </div>
       </div>

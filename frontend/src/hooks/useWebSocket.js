@@ -3,6 +3,8 @@ import { useState, useEffect, useRef, useCallback } from "react";
 const WS_URL = `ws://${window.location.hostname}:8765`;
 const MAX_BACKOFF = 30000;
 
+const MAX_DECODE_LINES = 200;
+
 export default function useWebSocket({ onSignalNew, onSignalUpdate, onSignalRemoved } = {}) {
   const [connected, setConnected] = useState(false);
   const [rtlsdrConnected, setRtlsdrConnected] = useState(false);
@@ -11,6 +13,7 @@ export default function useWebSocket({ onSignalNew, onSignalUpdate, onSignalRemo
   const [bands, setBands] = useState([]);
   const [bandStatus, setBandStatus] = useState({});
   const [scanning, setScanning] = useState(false);
+  const [decodeLines, setDecodeLines] = useState([]);
 
   const wsRef = useRef(null);
   const backoffRef = useRef(1000);
@@ -66,6 +69,26 @@ export default function useWebSocket({ onSignalNew, onSignalUpdate, onSignalRemo
 
           case "signal_removed":
             cb.onSignalRemoved?.(data.signal_id);
+            break;
+
+          case "decode_line":
+            setDecodeLines((prev) => {
+              const next = [
+                ...prev,
+                {
+                  id: Date.now() + Math.random(),
+                  ts: new Date().toLocaleTimeString(),
+                  decoder: data.decoder,
+                  protocol: data.protocol,
+                  summary: data.summary,
+                  count: data.count,
+                  band: data.band,
+                },
+              ];
+              return next.length > MAX_DECODE_LINES
+                ? next.slice(-MAX_DECODE_LINES)
+                : next;
+            });
             break;
 
           case "scan_band_active":
@@ -147,6 +170,7 @@ export default function useWebSocket({ onSignalNew, onSignalUpdate, onSignalRemo
     bands,
     bandStatus,
     scanning,
+    decodeLines,
     sendMessage,
     scanStart,
     scanStop,

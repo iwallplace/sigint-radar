@@ -15,6 +15,8 @@ from signal_cluster import SignalCluster
 from distance_estimator import estimate_distance_km
 from weirdness_scorer import calculate_weirdness
 from regions import detect_region, load_bands
+from decoder_manager import DecoderManager, select_decoder
+from decode_normalizer import make_decode_summary
 
 logger = logging.getLogger("sigint-radar")
 
@@ -75,6 +77,7 @@ class ScanEngine:
         self.running = False
         self._sdr = None
         self._tcp_sock = None
+        self.decoder_manager = DecoderManager(config=self.config)
 
         rtlsdr_cfg = self.config.get("rtlsdr", {})
         self.sdr_source = rtlsdr_cfg.get("source", "usb")
@@ -155,7 +158,7 @@ class ScanEngine:
         logger.info("Scan stopped")
 
     async def _scan_band(self, name, band):
-        """Scan a single band. Yields signal events."""
+        """Scan a single band. Yields signal events + decode events."""
         sample_rate, sweep_count = BAND_SR.get(name, DEFAULT_SR)
         center_hz = band["center_hz"]
         bandwidth_hz = band["bandwidth_hz"]
@@ -208,6 +211,27 @@ class ScanEngine:
                         "snr_db": snr,
                         "estimated_distance_km": distance,
                     }
+
+                    # Run live decode if decoder exists for this freq
+                    has_decoder = select_decoder(peak_freq) is not None
+                    if has_decoder:
+                        async for decode_result in self.decoder_manager.start_live_decode(
+                            peak_freq, name
+                        ):
+                            if decode_result and decode_result.get("count", 0) > 0:
+                                sig["protocol"] = decode_result.get("protocol", sig["protocol"])
+                                sig["category"] = decode_result.get("category", sig["category"])
+                                sig["decode_summary"] = decode_result.get("_summary", "")
+
+                                yield {
+                                    "type": "decode_line",
+                                    "decoder": decode_result.get("decoder"),
+                                    "protocol": decode_result.get("protocol"),
+                                    "summary": decode_result.get("_summary", ""),
+                                    "count": decode_result.get("count", 0),
+                                    "band": name,
+                                }
+
                     sig["weirdness_score"] = calculate_weirdness(
                         sig, self.priority_bands
                     )
@@ -379,4 +403,5 @@ class ScanEngine:
                 pass
             self._sdr = None
         self._close_tcp()
+        asyncio.ensure_future(self.decoder_manager.stop_live_decode())
         logger.info("Scan engine stop requested")

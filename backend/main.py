@@ -188,6 +188,9 @@ class SignalServer:
                         self.band_status[self.active_band] = "found"
                     await self.broadcast(event)
 
+                elif event["type"] == "decode_line":
+                    await self.broadcast(event)
+
                 elif event["type"] == "signal_update":
                     await self.broadcast(event)
 
