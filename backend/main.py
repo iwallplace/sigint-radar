@@ -50,6 +50,10 @@ class SignalServer:
         # Spectrum data for REST API / waterfall
         self.last_spectrum = None
 
+        # Alert cooldown: freq_key -> last_alert_timestamp
+        self._alert_cooldown = {}
+        self.ALERT_COOLDOWN_SECONDS = 300  # 5 minutes
+
         # Initialize band statuses
         for band in self.scan_engine.get_bands_info():
             self.band_status[band["name"]] = "idle"
@@ -777,19 +781,25 @@ class SignalServer:
                         self.band_status[self.active_band] = "found"
                     await self.broadcast(event)
 
-                    # Alert if weirdness exceeds threshold
+                    # Alert if weirdness exceeds threshold (with cooldown)
                     sig = event.get("signal", {})
                     threshold = self.config.get("alerts", {}).get(
                         "weirdness_threshold", 40
                     )
                     w_score = sig.get("weirdness_score", 0)
                     if w_score >= threshold:
-                        await self.broadcast({
-                            "type": "alert",
-                            "signal": sig,
-                            "weirdness": w_score,
-                            "reason": f"Weirdness {w_score} >= threshold {threshold}",
-                        })
+                        # Cooldown: 1 alert per frequency per 5 minutes
+                        freq_key = int(sig.get("freq_hz", 0) / 1000)  # 1kHz bins
+                        now = time.time()
+                        last_alert = self._alert_cooldown.get(freq_key, 0)
+                        if now - last_alert >= self.ALERT_COOLDOWN_SECONDS:
+                            self._alert_cooldown[freq_key] = now
+                            await self.broadcast({
+                                "type": "alert",
+                                "signal": sig,
+                                "weirdness": w_score,
+                                "reason": f"Weirdness {w_score} >= threshold {threshold}",
+                            })
 
                 elif event["type"] == "spectrum":
                     self.last_spectrum = event
