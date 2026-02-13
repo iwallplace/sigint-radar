@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useI18n } from "./i18n";
 import useWebSocket from "./hooks/useWebSocket";
 import useSignalData from "./hooks/useSignalData";
 import RadarScreen from "./components/RadarScreen";
@@ -7,8 +8,10 @@ import BandCatalog from "./components/BandCatalog";
 import DecodePanel from "./components/DecodePanel";
 import SignalDetail from "./components/SignalDetail";
 import DecodeHistory from "./components/DecodeHistory";
+import SetupWizard from "./components/SetupWizard";
 
 export default function App() {
+  const { t, setLang } = useI18n();
   const [activeTab, setActiveTab] = useState("radar");
 
   const {
@@ -36,11 +39,45 @@ export default function App() {
     scanStop,
     recordStart,
     recordStop,
+    setupComplete,
+    serverLanguage,
   } = useWebSocket({
     onSignalNew: addSignal,
     onSignalUpdate: updateSignal,
     onSignalRemoved: removeSignal,
   });
+
+  // Sync language from server
+  useEffect(() => {
+    if (serverLanguage) {
+      setLang(serverLanguage);
+    }
+  }, [serverLanguage, setLang]);
+
+  // Show setup wizard if setup not complete (null = loading)
+  if (setupComplete === false) {
+    return (
+      <SetupWizard
+        sendMessage={sendMessage}
+        rtlsdrConnected={rtlsdrConnected}
+        bands={bands}
+      />
+    );
+  }
+
+  // Loading state while waiting for connection_status
+  if (setupComplete === null && !connected) {
+    return (
+      <div className="h-screen bg-gray-950 text-green-400 font-mono flex items-center justify-center">
+        <div className="text-center space-y-2">
+          <div className="text-xl font-bold tracking-widest">SIGINT RADAR</div>
+          <div className="text-xs text-gray-500 animate-pulse">
+            Connecting...
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="h-screen bg-gray-950 text-green-400 font-mono flex">
@@ -61,17 +98,19 @@ export default function App() {
         {/* Top bar */}
         <div className="flex items-center justify-between px-4 py-2 border-b border-gray-800">
           <div className="flex items-center gap-4">
-            <h1 className="text-xl font-bold tracking-widest">SIGINT RADAR</h1>
+            <h1 className="text-xl font-bold tracking-widest">
+              {t("app.title")}
+            </h1>
             <div className="flex gap-1">
               <TabButton
                 active={activeTab === "radar"}
                 onClick={() => setActiveTab("radar")}
-                label="Radar"
+                label={t("nav.radar")}
               />
               <TabButton
                 active={activeTab === "history"}
                 onClick={() => setActiveTab("history")}
-                label="Geçmiş"
+                label={t("nav.history")}
               />
             </div>
           </div>
@@ -82,8 +121,10 @@ export default function App() {
                   connected ? "bg-green-500" : "bg-red-500"
                 }`}
               />
-              <span className={connected ? "text-green-400" : "text-red-400"}>
-                WS: {connected ? "on" : "off"}
+              <span
+                className={connected ? "text-green-400" : "text-red-400"}
+              >
+                {connected ? t("status.ws_on") : t("status.ws_off")}
               </span>
             </div>
             <div className="flex items-center gap-1.5">
@@ -97,17 +138,17 @@ export default function App() {
                   rtlsdrConnected ? "text-green-400" : "text-yellow-400"
                 }
               >
-                SDR: {rtlsdrConnected ? "on" : "no"}
+                {rtlsdrConnected ? t("status.sdr_on") : t("status.sdr_no")}
               </span>
             </div>
             {recording && (
               <div className="flex items-center gap-1.5">
                 <span className="inline-block w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                <span className="text-red-400">REC</span>
+                <span className="text-red-400">{t("status.rec")}</span>
               </div>
             )}
             <span className="text-gray-600">
-              {signalList.length} signals
+              {signalList.length} {t("app.signals")}
             </span>
           </div>
         </div>
@@ -115,14 +156,14 @@ export default function App() {
         {/* WebSocket disconnected banner */}
         {!connected && (
           <div className="bg-red-900/80 text-red-200 text-xs text-center py-1.5 px-4 animate-pulse">
-            WebSocket bağlantısı kesildi — yeniden bağlanılıyor...
+            {t("status.ws_disconnected")}
           </div>
         )}
 
         {/* RTL-SDR disconnected banner */}
         {connected && !rtlsdrConnected && activeTab === "radar" && (
           <div className="bg-yellow-900/60 text-yellow-300 text-xs text-center py-1 px-4">
-            RTL-SDR bağlı değil
+            {t("status.sdr_disconnected")}
           </div>
         )}
 

@@ -5,7 +5,7 @@ import os
 
 import websockets
 
-from config import load_config
+from config import load_config, save_config
 from database import Database
 from signal_cluster import SignalCluster
 from scan_engine import ScanEngine
@@ -57,6 +57,8 @@ class SignalServer:
                 "bands": self.scan_engine.get_bands_info(),
                 "band_status": self.band_status,
                 "scanning": self.scanning,
+                "setup_complete": self.config.get("setup_complete", False),
+                "language": self.config.get("ui", {}).get("language", "en"),
             }))
 
             # Send current active signals to new client
@@ -95,7 +97,7 @@ class SignalServer:
             "delete_record": self._handle_delete_record,
             "get_disk_usage": self._handle_get_disk_usage,
             "update_config": self._handle_not_implemented,
-            "save_setup": self._handle_not_implemented,
+            "save_setup": self._handle_save_setup,
             "get_rtlsdr_status": self._handle_rtlsdr_status,
             "replay_start": self._handle_not_implemented,
             "replay_stop": self._handle_not_implemented,
@@ -429,6 +431,68 @@ class SignalServer:
             logger.error("Error re-decoding: %s", e)
             await ws.send(json.dumps({
                 "type": "error", "action": "re_decode", "message": str(e),
+            }))
+
+    async def _handle_save_setup(self, data, ws):
+        try:
+            station = data.get("station", {})
+            region = data.get("region", "auto")
+            rtlsdr = data.get("rtlsdr", {})
+            language = data.get("language", "en")
+
+            # Update config
+            if station:
+                self.config["station"] = {
+                    **self.config.get("station", {}),
+                    **station,
+                }
+            if region and region != "auto":
+                self.config["region"] = {"profile": region}
+            if rtlsdr:
+                self.config["rtlsdr"] = {
+                    **self.config.get("rtlsdr", {}),
+                    **rtlsdr,
+                }
+            self.config.setdefault("ui", {})["language"] = language
+            self.config["setup_complete"] = True
+
+            # Save to disk
+            save_config(self.config)
+
+            # Reload scan engine with new bands
+            from regions import detect_region, load_bands
+            lat = self.config["station"].get("lat", 0.0)
+            lon = self.config["station"].get("lon", 0.0)
+            profile = self.config.get("region", {}).get("profile", "auto")
+            detected = profile if profile != "auto" else detect_region(lat, lon)
+            self.config["region"]["profile"] = detected
+
+            self.cluster = SignalCluster()
+            self.scan_engine = ScanEngine(config=self.config, cluster=self.cluster)
+            self.band_status = {}
+            for band in self.scan_engine.get_bands_info():
+                self.band_status[band["name"]] = "idle"
+
+            # Broadcast updated status
+            await self.broadcast({
+                "type": "connection_status",
+                "rtlsdr_connected": self.rtlsdr_connected,
+                "station": self.config["station"],
+                "region": self.config["region"],
+                "bands": self.scan_engine.get_bands_info(),
+                "band_status": self.band_status,
+                "scanning": False,
+                "setup_complete": True,
+                "language": language,
+            })
+
+            logger.info("Setup saved: station=%s, region=%s, language=%s",
+                        station.get("name", ""), detected, language)
+
+        except Exception as e:
+            logger.error("Error saving setup: %s", e)
+            await ws.send(json.dumps({
+                "type": "error", "action": "save_setup", "message": str(e),
             }))
 
     async def _handle_get_disk_usage(self, data, ws):

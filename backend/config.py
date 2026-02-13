@@ -96,12 +96,16 @@ def _deep_merge(base, override):
     return result
 
 
+USER_CONFIG_PATH = "/app/data/config.yaml"
+
+
 def load_config(path=None):
     if path is None:
         path = os.environ.get("CONFIG_PATH", "/app/config.yaml")
 
     config = DEFAULTS.copy()
 
+    # Load base config (shipped with image)
     try:
         with open(path, "r") as f:
             user_config = yaml.safe_load(f) or {}
@@ -112,4 +116,30 @@ def load_config(path=None):
     except Exception as e:
         logger.error("Error loading config: %s, using defaults", e)
 
+    # Overlay user config from writable volume (setup wizard saves here)
+    try:
+        with open(USER_CONFIG_PATH, "r") as f:
+            saved = yaml.safe_load(f) or {}
+        config = _deep_merge(config, saved)
+        logger.info("User config overlaid from %s", USER_CONFIG_PATH)
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        logger.warning("Error loading user config: %s", e)
+
     return config
+
+
+def save_config(config, path=None):
+    if path is None:
+        path = USER_CONFIG_PATH
+
+    try:
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        with open(path, "w") as f:
+            yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
+        logger.info("Config saved to %s", path)
+        return True
+    except Exception as e:
+        logger.error("Error saving config: %s", e)
+        return False

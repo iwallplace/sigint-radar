@@ -5,46 +5,44 @@ import logging
 from .base import UNIVERSAL_BANDS
 from .eu import EU_BANDS
 from .us import US_BANDS
+from .tr import TR_BANDS
+from .jp import JP_BANDS
+from .au import AU_BANDS
 
 logger = logging.getLogger("sigint-radar")
 
 REGION_MAP = {
-    "TR": "eu",
-    "DE": "eu",
-    "FR": "eu",
-    "GB": "eu",
-    "IT": "eu",
-    "ES": "eu",
-    "NL": "eu",
-    "BE": "eu",
-    "AT": "eu",
-    "CH": "eu",
-    "PL": "eu",
-    "CZ": "eu",
-    "SE": "eu",
-    "NO": "eu",
-    "DK": "eu",
-    "FI": "eu",
-    "PT": "eu",
-    "GR": "eu",
-    "RO": "eu",
-    "HU": "eu",
-    "IE": "eu",
-    "HR": "eu",
-    "BG": "eu",
-    "SK": "eu",
-    "SI": "eu",
-    "LT": "eu",
-    "LV": "eu",
-    "EE": "eu",
-    "US": "us",
-    "CA": "us",
-    "MX": "us",
+    # Europe
+    "DE": "eu", "FR": "eu", "GB": "eu", "IT": "eu", "ES": "eu",
+    "NL": "eu", "BE": "eu", "AT": "eu", "CH": "eu", "PL": "eu",
+    "CZ": "eu", "SE": "eu", "NO": "eu", "DK": "eu", "FI": "eu",
+    "PT": "eu", "GR": "eu", "RO": "eu", "HU": "eu", "IE": "eu",
+    "HR": "eu", "BG": "eu", "SK": "eu", "SI": "eu", "LT": "eu",
+    "LV": "eu", "EE": "eu",
+    # Turkey
+    "TR": "tr",
+    # Americas
+    "US": "us", "CA": "us", "MX": "us",
+    # Japan
+    "JP": "jp",
+    # Australia / New Zealand
+    "AU": "au", "NZ": "au",
 }
 
 REGION_BANDS = {
     "eu": EU_BANDS,
     "us": US_BANDS,
+    "tr": TR_BANDS,
+    "jp": JP_BANDS,
+    "au": AU_BANDS,
+}
+
+REGION_LABELS = {
+    "eu": "Europe (EU)",
+    "us": "Americas (US/CA)",
+    "tr": "Turkey (TR)",
+    "jp": "Japan (JP)",
+    "au": "Australia (AU/NZ)",
 }
 
 

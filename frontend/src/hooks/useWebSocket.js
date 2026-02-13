@@ -17,6 +17,8 @@ export default function useWebSocket({ onSignalNew, onSignalUpdate, onSignalRemo
   const [recording, setRecording] = useState(false);
   const [recordProgress, setRecordProgress] = useState(null);
   const [recordResult, setRecordResult] = useState(null);
+  const [setupComplete, setSetupComplete] = useState(null);
+  const [serverLanguage, setServerLanguage] = useState(null);
 
   const wsRef = useRef(null);
   const backoffRef = useRef(1000);
@@ -51,6 +53,8 @@ export default function useWebSocket({ onSignalNew, onSignalUpdate, onSignalRemo
             if (data.bands) setBands(data.bands);
             if (data.band_status) setBandStatus(data.band_status);
             if (data.scanning !== undefined) setScanning(data.scanning);
+            if (data.setup_complete !== undefined) setSetupComplete(data.setup_complete);
+            if (data.language) setServerLanguage(data.language);
             if (data.signals) {
               for (const sig of data.signals) {
                 cb.onSignalNew?.(sig);
@@ -251,5 +255,7 @@ export default function useWebSocket({ onSignalNew, onSignalUpdate, onSignalRemo
     scanStop,
     recordStart,
     recordStop,
+    setupComplete,
+    serverLanguage,
   };
 }
