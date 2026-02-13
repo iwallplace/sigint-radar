@@ -196,6 +196,30 @@ class ScanEngine:
                     iq_samples, sweep_freq, sample_rate
                 )
 
+                # Emit spectrum data for waterfall display
+                try:
+                    fft_size = self.detector.fft_size
+                    spectrum = np.fft.fftshift(np.fft.fft(iq_samples[:fft_size]))
+                    power_db_arr = 20 * np.log10(np.abs(spectrum) + 1e-12)
+                    freqs_arr = np.linspace(
+                        sweep_freq - sample_rate / 2,
+                        sweep_freq + sample_rate / 2,
+                        fft_size,
+                    )
+                    # Downsample to 256 bins for efficiency
+                    n_bins = 256
+                    step = max(1, len(freqs_arr) // n_bins)
+                    yield {
+                        "type": "spectrum",
+                        "band": name,
+                        "center_hz": sweep_freq,
+                        "sample_rate": sample_rate,
+                        "freqs": freqs_arr[::step].tolist(),
+                        "power_db": power_db_arr[::step].tolist(),
+                    }
+                except Exception:
+                    pass
+
                 for peak_freq, peak_power, bw, snr in detected:
                     freq_mhz = peak_freq / 1e6
                     distance = estimate_distance_km(

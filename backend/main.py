@@ -2,7 +2,9 @@ import asyncio
 import json
 import logging
 import os
+import time
 
+import numpy as np
 import websockets
 
 from config import load_config, save_config
@@ -11,6 +13,8 @@ from signal_cluster import SignalCluster
 from scan_engine import ScanEngine
 from recorder import SignalRecorder
 from decode_runner import decode_file
+from rest_api import start_rest_api
+from aircraft_tracker import AircraftTracker
 
 logging.basicConfig(
     level=logging.INFO,
@@ -38,6 +42,13 @@ class SignalServer:
         self.recorder = SignalRecorder(config=self.config)
         self.recording = False
         self._pre_record_bands = None  # bands to resume after recording
+
+        # Replay state
+        self.replaying = False
+        self.replay_task = None
+
+        # Spectrum data for REST API / waterfall
+        self.last_spectrum = None
 
         # Initialize band statuses
         for band in self.scan_engine.get_bands_info():
@@ -108,8 +119,8 @@ class SignalServer:
             "update_config": self._handle_update_config,
             "save_setup": self._handle_save_setup,
             "get_rtlsdr_status": self._handle_rtlsdr_status,
-            "replay_start": self._handle_not_implemented,
-            "replay_stop": self._handle_not_implemented,
+            "replay_start": self._handle_replay_start,
+            "replay_stop": self._handle_replay_stop,
         }
 
         handler = handlers.get(action)
@@ -593,6 +604,150 @@ class SignalServer:
         except Exception as e:
             logger.error("Error getting disk usage: %s", e)
 
+    async def _handle_replay_start(self, data, ws):
+        """Replay a recorded IQ file through the scan pipeline."""
+        record_id = data.get("record_id")
+        speed = data.get("speed", 1.0)
+
+        if not record_id:
+            if ws:
+                await ws.send(json.dumps({
+                    "type": "error", "action": "replay_start",
+                    "message": "no_record_id",
+                }))
+            return
+
+        record = self.db.get_record(record_id)
+        if not record:
+            if ws:
+                await ws.send(json.dumps({
+                    "type": "error", "action": "replay_start",
+                    "message": "record_not_found",
+                }))
+            return
+
+        raw_path = record.get("raw_path")
+        if not raw_path or not os.path.isfile(raw_path):
+            if ws:
+                await ws.send(json.dumps({
+                    "type": "error", "action": "replay_start",
+                    "message": "raw_file_missing",
+                }))
+            return
+
+        # Cancel existing replay
+        if self.replay_task and not self.replay_task.done():
+            self.replay_task.cancel()
+
+        self.replaying = True
+        self.replay_task = asyncio.create_task(
+            self._run_replay(raw_path, record, speed)
+        )
+
+    async def _handle_replay_stop(self, data, ws):
+        if self.replay_task and not self.replay_task.done():
+            self.replay_task.cancel()
+        self.replaying = False
+        await self.broadcast({"type": "replay_stopped"})
+
+    async def _run_replay(self, raw_path, record, speed=1.0):
+        """Read raw IQ file in chunks and emit spectrum + signal events."""
+        freq_hz = record.get("freq_hz", 100e6)
+        sample_rate = self.config.get("rtlsdr", {}).get("sample_rate", 2400000)
+        fft_size = self.config.get("scanner", {}).get("fft_size", 2048)
+        chunk_samples = 256 * 1024
+        chunk_bytes = chunk_samples * 2  # uint8 I+Q pairs
+
+        file_size = os.path.getsize(raw_path)
+        total_chunks = max(1, file_size // chunk_bytes)
+
+        await self.broadcast({
+            "type": "replay_started",
+            "record_id": record.get("id"),
+            "total_chunks": total_chunks,
+        })
+
+        try:
+            with open(raw_path, "rb") as f:
+                chunk_idx = 0
+                while True:
+                    raw = f.read(chunk_bytes)
+                    if not raw or len(raw) < fft_size * 2:
+                        break
+
+                    # Convert uint8 IQ to complex
+                    data = np.frombuffer(raw, dtype=np.uint8).astype(np.float32)
+                    i_data = (data[0::2] - 127.5) / 127.5
+                    q_data = (data[1::2] - 127.5) / 127.5
+                    iq = i_data + 1j * q_data
+
+                    # FFT for spectrum
+                    spectrum = np.fft.fftshift(np.fft.fft(iq[:fft_size]))
+                    power_db = 20 * np.log10(np.abs(spectrum) + 1e-12)
+                    freqs = np.linspace(
+                        freq_hz - sample_rate / 2,
+                        freq_hz + sample_rate / 2,
+                        fft_size,
+                    )
+                    n_bins = 256
+                    step = max(1, len(freqs) // n_bins)
+
+                    spectrum_event = {
+                        "type": "spectrum",
+                        "band": "replay",
+                        "center_hz": freq_hz,
+                        "sample_rate": sample_rate,
+                        "freqs": freqs[::step].tolist(),
+                        "power_db": power_db[::step].tolist(),
+                    }
+                    self.last_spectrum = spectrum_event
+                    await self.broadcast(spectrum_event)
+
+                    # Signal detection on replay data
+                    detected = self.scan_engine.detector.detect_signals(
+                        iq, freq_hz, sample_rate
+                    )
+                    for peak_freq, peak_power, bw, snr in detected:
+                        sig = {
+                            "freq_hz": peak_freq,
+                            "band_name": record.get("band_name", "replay"),
+                            "protocol": record.get("protocol", "unknown"),
+                            "category": record.get("category", "unknown"),
+                            "power_db": peak_power,
+                            "snr_db": snr,
+                            "estimated_distance_km": 0,
+                            "weirdness_score": 0,
+                        }
+                        cid, is_new = self.cluster.add_signal(sig)
+                        cluster = self.cluster.get_cluster(cid)
+                        if is_new:
+                            await self.broadcast({"type": "signal_new", "signal": cluster})
+                        else:
+                            await self.broadcast({"type": "signal_update", "signal": cluster})
+
+                    chunk_idx += 1
+                    await self.broadcast({
+                        "type": "replay_progress",
+                        "chunk": chunk_idx,
+                        "total_chunks": total_chunks,
+                        "progress_pct": round(100 * chunk_idx / total_chunks, 1),
+                    })
+
+                    # Pace the replay
+                    delay = (chunk_samples / sample_rate) / max(speed, 0.1)
+                    await asyncio.sleep(delay)
+
+        except asyncio.CancelledError:
+            logger.info("Replay cancelled")
+        except Exception as e:
+            logger.error("Replay error: %s", e)
+        finally:
+            self.replaying = False
+            await self.broadcast({
+                "type": "replay_complete",
+                "record_id": record.get("id"),
+            })
+
     async def _run_scan(self, band_names):
         """Run scan engine and broadcast events."""
         try:
@@ -635,6 +790,10 @@ class SignalServer:
                             "weirdness": w_score,
                             "reason": f"Weirdness {w_score} >= threshold {threshold}",
                         })
+
+                elif event["type"] == "spectrum":
+                    self.last_spectrum = event
+                    await self.broadcast(event)
 
                 elif event["type"] == "decode_line":
                     await self.broadcast(event)
@@ -777,9 +936,20 @@ class SignalServer:
         logger.info("SIGINT RADAR backend starting on ws://%s:%d", ws_host, ws_port)
         logger.info("Scan engine: fake_mode=%s, region=%s", fake_mode, self.scan_engine.region)
 
+        # Start REST API server
+        await start_rest_api(self)
+
         async with websockets.serve(self.handler, ws_host, ws_port):
             asyncio.create_task(self.check_rtlsdr())
             asyncio.create_task(self.ttl_tick_loop())
+
+            # Start aircraft tracker
+            tracker = AircraftTracker(
+                config=self.config,
+                cluster=self.cluster,
+                broadcast_fn=self.broadcast,
+            )
+            asyncio.create_task(tracker.run())
 
             if fake_mode:
                 logger.info("Fake mode — auto-starting scan with all enabled bands")

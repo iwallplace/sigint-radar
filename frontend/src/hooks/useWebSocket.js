@@ -22,6 +22,7 @@ export default function useWebSocket({ onSignalNew, onSignalUpdate, onSignalRemo
   const [serverLanguage, setServerLanguage] = useState(null)
   const [serverConfig, setServerConfig] = useState(null)
   const [alerts, setAlerts] = useState([])
+  const [spectrumData, setSpectrumData] = useState(null)
 
   const wsRef = useRef(null)
   const backoffRef = useRef(1000)
@@ -91,6 +92,10 @@ export default function useWebSocket({ onSignalNew, onSignalUpdate, onSignalRemo
 
           case "config_updated":
             if (data.config) setServerConfig(data.config)
+            break
+
+          case "spectrum":
+            setSpectrumData(data)
             break
 
           case "decode_line":
@@ -274,5 +279,6 @@ export default function useWebSocket({ onSignalNew, onSignalUpdate, onSignalRemo
     serverLanguage,
     serverConfig,
     alerts,
+    spectrumData,
   }
 }

@@ -11,6 +11,9 @@ import DecodeHistory from "./components/DecodeHistory"
 import SetupWizard from "./components/SetupWizard"
 import Settings from "./components/Settings"
 import WeirdnessAlert from "./components/WeirdnessAlert"
+import WaterfallDisplay from "./components/WaterfallDisplay"
+import MapView from "./components/MapView"
+import GlobeView from "./components/GlobeView"
 
 export default function App() {
   const { t, setLang } = useI18n()
@@ -29,6 +32,7 @@ export default function App() {
   const {
     connected,
     rtlsdrConnected,
+    station,
     bands,
     bandStatus,
     scanning,
@@ -45,6 +49,7 @@ export default function App() {
     serverLanguage,
     serverConfig,
     alerts,
+    spectrumData,
   } = useWebSocket({
     onSignalNew: addSignal,
     onSignalUpdate: updateSignal,
@@ -84,6 +89,7 @@ export default function App() {
   }
 
   const alertConfig = serverConfig?.alerts || {}
+  const stationConfig = serverConfig?.station || station || {}
 
   return (
     <div className="h-screen bg-gray-950 text-green-400 font-mono flex">
@@ -123,6 +129,21 @@ export default function App() {
                 active={activeTab === "radar"}
                 onClick={() => setActiveTab("radar")}
                 label={t("nav.radar")}
+              />
+              <TabButton
+                active={activeTab === "waterfall"}
+                onClick={() => setActiveTab("waterfall")}
+                label={t("nav.waterfall")}
+              />
+              <TabButton
+                active={activeTab === "map"}
+                onClick={() => setActiveTab("map")}
+                label={t("nav.map")}
+              />
+              <TabButton
+                active={activeTab === "globe"}
+                onClick={() => setActiveTab("globe")}
+                label={t("nav.globe")}
               />
               <TabButton
                 active={activeTab === "history"}
@@ -229,6 +250,24 @@ export default function App() {
               />
             )}
           </div>
+        ) : activeTab === "waterfall" ? (
+          <WaterfallDisplay
+            bands={bands}
+            spectrumData={spectrumData}
+          />
+        ) : activeTab === "map" ? (
+          <MapView
+            station={stationConfig}
+            signals={signalList}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            radarRange={serverConfig?.ui?.radar_range_km || 200}
+          />
+        ) : activeTab === "globe" ? (
+          <GlobeView
+            station={stationConfig}
+            signals={signalList}
+          />
         ) : activeTab === "history" ? (
           <DecodeHistory
             sendMessage={sendMessage}

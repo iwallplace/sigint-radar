@@ -5,6 +5,9 @@
   },
   "nav": {
     "radar": "Radar",
+    "waterfall": "Waterfall",
+    "map": "Map",
+    "globe": "Globe",
     "history": "History",
     "settings": "Settings"
   },
@@ -161,6 +164,20 @@
     "unusual_signal": "UNUSUAL SIGNAL",
     "weirdness": "Weirdness",
     "show": "Show"
+  },
+  "waterfall": {
+    "title": "WATERFALL",
+    "all_bands": "All Bands",
+    "band_filter": "Band",
+    "waiting": "Waiting for spectrum data..."
+  },
+  "map": {
+    "title": "MAP VIEW"
+  },
+  "globe": {
+    "title": "GLOBE VIEW",
+    "loading": "Loading 3D globe...",
+    "error": "Failed to load 3D globe"
   },
   "categories": {
     "ism_sensor": "ISM Sensor",

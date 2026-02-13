@@ -5,6 +5,9 @@
   },
   "nav": {
     "radar": "Radar",
+    "waterfall": "Selale",
+    "map": "Harita",
+    "globe": "Kure",
     "history": "Gecmis",
     "settings": "Ayarlar"
   },
@@ -161,6 +164,20 @@
     "unusual_signal": "OLAGAN DISI SINYAL",
     "weirdness": "Gariplik",
     "show": "Goster"
+  },
+  "waterfall": {
+    "title": "SELALE",
+    "all_bands": "Tum Bantlar",
+    "band_filter": "Bant",
+    "waiting": "Spektrum verisi bekleniyor..."
+  },
+  "map": {
+    "title": "HARITA"
+  },
+  "globe": {
+    "title": "KURE GORUNUMU",
+    "loading": "3D kure yukleniyor...",
+    "error": "3D kure yuklenemedi"
   },
   "categories": {
     "ism_sensor": "ISM Sensor",
